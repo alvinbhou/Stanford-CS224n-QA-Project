@@ -332,7 +332,7 @@ def load_model(model, checkpoint_path, gpu_ids, return_step=True):
         model (torch.nn.DataParallel): Model loaded from checkpoint.
         step (int): Step at which checkpoint was saved. Only if `return_step`.
     """
-    device = f"cuda:{gpu_ids[0] if gpu_ids else 'cpu'}"
+    device = f"cuda:{gpu_ids[0]}" if gpu_ids else 'cpu'
     ckpt_dict = torch.load(checkpoint_path, map_location=device)
 
     # Build model, load parameters
