@@ -4,3 +4,4 @@ __pycache__
 .texpadtmp/
 data/
 save/
+.vscode
