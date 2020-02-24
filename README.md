@@ -1,4 +1,8 @@
 # SQuad With Transformer by HuggingFace
+
+## Setup
+Run the default setup first! See [READEME_bidaf](README_bidaf.md)
+
 ## SQuAD
 
 Based on the script [`run_squad.py`](https://github.com/huggingface/transformers/blob/master/examples/run_squad.py).
