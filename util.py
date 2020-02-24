@@ -41,6 +41,7 @@ class SQuAD(data.Dataset):
         data_path (str): Path to .npz file containing pre-processed dataset.
         use_v2 (bool): Whether to use SQuAD 2.0 questions. Otherwise only use SQuAD 1.1.
     """
+
     def __init__(self, data_path, use_v2=True):
         super(SQuAD, self).__init__()
 
@@ -149,6 +150,7 @@ class AverageMeter:
     Adapted from:
         > https://github.com/pytorch/examples/blob/master/imagenet/main.py
     """
+
     def __init__(self):
         self.avg = 0
         self.sum = 0
@@ -177,6 +179,7 @@ class EMA:
         model (torch.nn.Module): Model with parameters whose EMA will be kept.
         decay (float): Decay rate for exponential moving average.
     """
+
     def __init__(self, model, decay):
         self.decay = decay
         self.shadow = {}
@@ -237,6 +240,7 @@ class CheckpointSaver:
             minimizes the metric.
         log (logging.Logger): Optional logger for printing information.
     """
+
     def __init__(self, save_dir, max_checkpoints, metric_name,
                  maximize_metric=False, log=None):
         super(CheckpointSaver, self).__init__()
@@ -450,7 +454,7 @@ def save_preds(preds, save_dir, file_name='predictions.csv'):
     return save_path
 
 
-def get_save_dir(base_dir, name, training, id_max=100):
+def get_save_dir(base_dir, name, training, reload_id=None, id_max=100):
     """Get a unique save directory by appending the smallest positive integer
     `id < id_max` that is not already taken (i.e., no dir exists with that id).
 
@@ -463,6 +467,10 @@ def get_save_dir(base_dir, name, training, id_max=100):
     Returns:
         save_dir (str): Path to a new directory with a unique name.
     """
+    if reload_id:
+        subdir = 'train' if training else 'test'
+        save_dir = os.path.join(base_dir, subdir, f'{name}-{reload_id:02d}')
+        return save_dir
     for uid in range(1, id_max):
         subdir = 'train' if training else 'test'
         save_dir = os.path.join(base_dir, subdir, f'{name}-{uid:02d}')
@@ -491,6 +499,7 @@ def get_logger(log_dir, name):
         See Also:
             > https://stackoverflow.com/questions/38543506
         """
+
         def emit(self, record):
             try:
                 msg = self.format(record)
@@ -498,7 +507,7 @@ def get_logger(log_dir, name):
                 self.flush()
             except (KeyboardInterrupt, SystemExit):
                 raise
-            except:
+            except BaseException:
                 self.handleError(record)
 
     # Create logger
