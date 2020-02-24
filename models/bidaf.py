@@ -4,7 +4,7 @@ Author:
     Chris Chute (chute@stanford.edu)
 """
 
-import BiDAF.layers as layers
+import models.layers as layers
 import torch
 import torch.nn as nn
 

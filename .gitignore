@@ -6,3 +6,5 @@ data/
 save/
 .vscode
 tmp*
+cached_*
+runs
