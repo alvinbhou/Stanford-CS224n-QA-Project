@@ -23,6 +23,7 @@ class Embedding(nn.Module):
         hidden_size (int): Size of hidden activations.
         drop_prob (float): Probability of zero-ing out activations
     """
+
     def __init__(self, word_vectors, hidden_size, drop_prob):
         super(Embedding, self).__init__()
         self.drop_prob = drop_prob
@@ -51,6 +52,7 @@ class HighwayEncoder(nn.Module):
         num_layers (int): Number of layers in the highway encoder.
         hidden_size (int): Size of hidden activations.
     """
+
     def __init__(self, num_layers, hidden_size):
         super(HighwayEncoder, self).__init__()
         self.transforms = nn.ModuleList([nn.Linear(hidden_size, hidden_size)
@@ -80,6 +82,7 @@ class RNNEncoder(nn.Module):
         num_layers (int): Number of layers of RNN cells to use.
         drop_prob (float): Probability of zero-ing out activations.
     """
+
     def __init__(self,
                  input_size,
                  hidden_size,
@@ -131,6 +134,7 @@ class BiDAFAttention(nn.Module):
         hidden_size (int): Size of hidden activations.
         drop_prob (float): Probability of zero-ing out activations.
     """
+
     def __init__(self, hidden_size, drop_prob=0.1):
         super(BiDAFAttention, self).__init__()
         self.drop_prob = drop_prob
@@ -197,6 +201,7 @@ class BiDAFOutput(nn.Module):
         hidden_size (int): Hidden size used in the BiDAF model.
         drop_prob (float): Probability of zero-ing out activations.
     """
+
     def __init__(self, hidden_size, drop_prob):
         super(BiDAFOutput, self).__init__()
         self.att_linear_1 = nn.Linear(8 * hidden_size, 1)
