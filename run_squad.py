@@ -28,6 +28,7 @@ import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
+import util
 
 from transformers import (
     WEIGHTS_NAME,
@@ -102,7 +103,7 @@ def to_list(tensor):
 def train(args, train_dataset, model, tokenizer):
     """ Train the model """
     if args.local_rank in [-1, 0]:
-        tb_writer = SummaryWriter()
+        tb_writer = SummaryWriter(args.save_dir)
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
@@ -502,6 +503,8 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
 
 def main():
     args = get_bert_args()
+    args.save_dir = util.get_save_dir(args.save_dir, args.name, training=True)
+    args.output_dir = args.save_dir
 
     if args.doc_stride >= args.max_seq_length - args.max_query_length:
         logger.warning(

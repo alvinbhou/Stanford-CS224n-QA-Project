@@ -10,6 +10,18 @@ import argparse
 def get_bert_args():
     # Required parameters
     parser = argparse.ArgumentParser()
+
+    parser.add_argument('--name',
+                        '-n',
+                        type=str,
+                        required=True,
+                        help='Name to identify training or test run.')
+
+    parser.add_argument('--save_dir',
+                        type=str,
+                        default='./save/',
+                        help='Base directory for saving information.')
+
     parser.add_argument(
         "--model_type",
         default=None,
@@ -28,7 +40,7 @@ def get_bert_args():
         "--output_dir",
         default=None,
         type=str,
-        required=True,
+        required=False,
         help="The output directory where the model checkpoints and predictions will be written.",
     )
 

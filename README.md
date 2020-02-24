@@ -42,6 +42,7 @@ or this for SQUAD 2.0 with default project settings
 
 ```bash
 python run_squad.py \
+  --name bert1 \
   --model_type bert \
   --model_name_or_path bert-base-uncased \
   --do_train \
@@ -53,8 +54,7 @@ python run_squad.py \
   --learning_rate 3e-5 \
   --num_train_epochs 2.0 \
   --max_seq_length 384 \
-  --doc_stride 128 \
-  --output_dir output　\    
+  --doc_stride 128 \ 
   --version_2_with_negative     
 ```
 
