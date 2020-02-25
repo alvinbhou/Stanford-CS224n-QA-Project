@@ -44,7 +44,7 @@ python run_squad.py \
   --output_dir /tmp/debug_squad/
 ```
 
-Training with the previously defined hyper-parameters yields the following results on Squad 1.0:
+Training with the previously defined hyper-parameters yields the following results on Squad 1.1:
 
 ```bash
 f1 = 88.52
