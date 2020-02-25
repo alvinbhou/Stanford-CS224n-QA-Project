@@ -15,5 +15,5 @@ python run_squad.py \
   --version_2_with_negative \
   --evaluate_during_training \
   --save_best_only \
-  --logging_steps 2000 \
-  --save_steps 2000
+  --logging_steps 5000 \
+  --save_steps 5000

@@ -44,15 +44,63 @@ python run_squad.py \
   --output_dir /tmp/debug_squad/
 ```
 
-For SQuAD2.0, run ```./run_squad.sh```
-
-###TODO
-Training with the previously defined hyper-parameters yields the following results:
+Training with the previously defined hyper-parameters yields the following results on Squad 1.0:
 
 ```bash
 f1 = 88.52
 exact_match = 81.22
 ```
+
+
+For SQuAD2.0, you could run `./run_squad.sh`
+
+For BERT-base on 8GB RAM GPU
+
+```bash
+python run_squad.py \
+  --name bert-test-1 \
+  --model_type bert \
+  --model_name_or_path bert-base-uncased \
+  --do_train \
+  --do_eval \
+  --do_lower_case \
+  --train_file data/train-v2.0.json \
+  --predict_file data/dev-v2.0.json \
+  --per_gpu_train_batch_size 8 \
+  --learning_rate 3e-5 \
+  --num_train_epochs 2.0 \
+  --max_seq_length 384 \
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --evaluate_during_training \
+  --save_best_only \
+  --logging_steps 5000 \
+  --save_steps 5000
+```
+
+For XLNet-base-cased on 12GB RAM K80
+```bash
+python run_squad.py \
+  --name xlnet-test \
+  --model_type xlnet \
+  --model_name_or_path xlnet-base-cased \
+  --do_train \
+  --do_eval \
+  --train_file data/train-v2.0.json \
+  --predict_file data/dev-v2.0.json \
+  --per_gpu_train_batch_size 12 \
+  --learning_rate 3e-5 \
+  --num_train_epochs 2.0 \
+  --max_seq_length 384 \
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --evaluate_during_training \
+  --save_best_only \
+  --logging_steps 5000 \
+  --save_steps 5000
+```
+
+
 
 #### Distributed training
 
