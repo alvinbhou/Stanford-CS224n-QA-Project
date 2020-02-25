@@ -290,6 +290,15 @@ def train(args, train_dataset, model, tokenizer):
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
 
+                    # Get eval results and save the log to output path
+                    if args.local_rank in [-1, 0] and args.evaluate_during_saving:
+                        output_path = os.path.join(output_dir, 'eval_result.json')
+                        eval_results = evaluate(args, model, tokenizer, save_dir=output_dir, save_log_path=output_path)
+                        for key, value in eval_results.items():
+                            tb_writer.add_scalar("eval_{}".format(key), value, global_step)
+                        # log eval result
+                        logger.info(f"Evaluation result at {global_step} step: {eval_results}")
+
                     # Save cur best model only
                     # Take care of distributed/parallel training
                     if (eval_results and cur_best_f1 < eval_results['f1']) or not args.save_best_only:
@@ -700,7 +709,7 @@ def main():
                 prefix=global_step,
                 save_dir=args.output_dir,
                 save_log_path=os.path.join(
-                    args.output_dir,
+                    checkpoint,
                     'eval_result.json'))
 
             result = dict((k + ("_{}".format(global_step) if global_step else ""), v) for k, v in result.items())

@@ -124,6 +124,9 @@ def get_bert_args():
         "--evaluate_during_training", action="store_true", help="Run evaluation during training at each logging step."
     )
     parser.add_argument(
+        "--evaluate_during_saving", action="store_true", help="Run evaluation during saving at each logging step."
+    )
+    parser.add_argument(
         "--do_lower_case", action="store_true", help="Set this flag if you are using an uncased model."
     )
 

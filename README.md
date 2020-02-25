@@ -72,9 +72,9 @@ python run_squad.py \
   --max_seq_length 384 \
   --doc_stride 128 \
   --version_2_with_negative \
-  --evaluate_during_training \
+  --evaluate_during_saving \
   --save_best_only \
-  --logging_steps 5000 \
+  --logging_steps 500 \
   --save_steps 5000
 ```
 
@@ -86,6 +86,7 @@ python run_squad.py \
   --model_name_or_path xlnet-base-cased \
   --do_train \
   --do_eval \
+  --do_lower_case \
   --train_file data/train-v2.0.json \
   --predict_file data/dev-v2.0.json \
   --per_gpu_train_batch_size 12 \
@@ -94,7 +95,7 @@ python run_squad.py \
   --max_seq_length 384 \
   --doc_stride 128 \
   --version_2_with_negative \
-  --evaluate_during_training \
+  --evaluate_during_saving \
   --save_best_only \
   --logging_steps 5000 \
   --save_steps 5000
