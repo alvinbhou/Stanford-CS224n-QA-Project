@@ -22,6 +22,10 @@ def get_bert_args():
                         default='./save/',
                         help='Base directory for saving information.')
 
+    parser.add_argument('--save_best_only',
+                        action='store_true',
+                        help='Whether only save the best model')
+
     parser.add_argument(
         "--model_type",
         default=None,

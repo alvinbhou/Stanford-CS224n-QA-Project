@@ -538,6 +538,11 @@ def get_logger(log_dir, name):
     return logger
 
 
+def save_eval_log(path, data):
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+
 def torch_from_json(path, dtype=torch.float32):
     """Load a PyTorch Tensor from a JSON file.
 

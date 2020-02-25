@@ -18,10 +18,11 @@
 
 from args import get_bert_args
 import glob
-import logging
+# import logging
 import os
 import random
 import timeit
+import json
 
 import numpy as np
 import torch
@@ -67,8 +68,8 @@ try:
 except ImportError:
     from tensorboardX import SummaryWriter
 
-
-logger = logging.getLogger(__name__)
+# Use logger from util.py instead
+# logger = logging.getLogger(__name__)
 
 ALL_MODELS = sum(
     (
@@ -196,6 +197,9 @@ def train(args, train_dataset, model, tokenizer):
     # Added here for reproductibility
     set_seed(args)
 
+    # global var for current best f1
+    cur_best_f1 = 0.0
+
     for _ in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
         for step, batch in enumerate(epoch_iterator):
@@ -254,34 +258,56 @@ def train(args, train_dataset, model, tokenizer):
                 scheduler.step()  # Update learning rate schedule
                 model.zero_grad()
                 global_step += 1
+                eval_results = None  # Evaluation result
 
                 # Log metrics
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Only evaluate when single GPU otherwise metrics may not average well
                     if args.local_rank == -1 and args.evaluate_during_training:
-                        results = evaluate(args, model, tokenizer)
-                        for key, value in results.items():
+                        # Create output dir/path
+                        output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
+                        if not os.path.exists(output_dir):
+                            os.makedirs(output_dir)
+                        output_path = os.path.join(output_dir, 'eval_result.json')
+
+                        # Get eval results and save the log to output path
+                        eval_results = evaluate(args, model, tokenizer, save_dir=output_dir, save_log_path=output_path)
+                        for key, value in eval_results.items():
                             tb_writer.add_scalar("eval_{}".format(key), value, global_step)
+
+                        # log eval result
+                        logger.info(f"Evaluation result at {global_step} step: {eval_results}")
                     tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
                     tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                     logging_loss = tr_loss
 
                 # Save model checkpoint
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
-                    output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
+                    # output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
+                    output_dir = os.path.join(
+                        args.output_dir, 'cur_best') if args.save_best_only else os.path.join(
+                        args.output_dir, "checkpoint-{}".format(global_step))
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
+
+                    # Save cur best model only
                     # Take care of distributed/parallel training
-                    model_to_save = model.module if hasattr(model, "module") else model
-                    model_to_save.save_pretrained(output_dir)
-                    tokenizer.save_pretrained(output_dir)
+                    if (eval_results and cur_best_f1 < eval_results['f1']) or not args.save_best_only:
+                        if eval_results and cur_best_f1 < eval_results['f1']:
+                            cur_best_f1 = eval_results['f1']
+                        model_to_save = model.module if hasattr(model, "module") else model
+                        model_to_save.save_pretrained(output_dir)
+                        tokenizer.save_pretrained(output_dir)
 
-                    torch.save(args, os.path.join(output_dir, "training_args.bin"))
-                    logger.info("Saving model checkpoint to %s", output_dir)
+                        torch.save(args, os.path.join(output_dir, "training_args.bin"))
+                        logger.info("Saving model checkpoint to %s", output_dir)
 
-                    torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
-                    torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
-                    logger.info("Saving optimizer and scheduler states to %s", output_dir)
+                        torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
+                        torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
+                        logger.info("Saving optimizer and scheduler states to %s", output_dir)
+
+                        if args.save_best_only:
+                            util.save_eval_log(os.path.join(output_dir, "eval_result.json"), {global_step: eval_results})
 
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()
@@ -296,11 +322,11 @@ def train(args, train_dataset, model, tokenizer):
     return global_step, tr_loss / global_step
 
 
-def evaluate(args, model, tokenizer, prefix=""):
+def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None):
     dataset, examples, features = load_and_cache_examples(args, tokenizer, evaluate=True, output_examples=True)
 
-    if not os.path.exists(args.output_dir) and args.local_rank in [-1, 0]:
-        os.makedirs(args.output_dir)
+    if not save_dir and args.local_rank in [-1, 0]:
+        os.makedirs(save_dir)
 
     args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
 
@@ -381,11 +407,11 @@ def evaluate(args, model, tokenizer, prefix=""):
     logger.info("  Evaluation done in total %f secs (%f sec per example)", evalTime, evalTime / len(dataset))
 
     # Compute predictions
-    output_prediction_file = os.path.join(args.output_dir, "predictions_{}.json".format(prefix))
-    output_nbest_file = os.path.join(args.output_dir, "nbest_predictions_{}.json".format(prefix))
+    output_prediction_file = os.path.join(save_dir, "predictions_{}.json".format(prefix))
+    output_nbest_file = os.path.join(save_dir, "nbest_predictions_{}.json".format(prefix))
 
     if args.version_2_with_negative:
-        output_null_log_odds_file = os.path.join(args.output_dir, "null_odds_{}.json".format(prefix))
+        output_null_log_odds_file = os.path.join(save_dir, "null_odds_{}.json".format(prefix))
     else:
         output_null_log_odds_file = None
 
@@ -428,6 +454,11 @@ def evaluate(args, model, tokenizer, prefix=""):
 
     # Compute the F1 and exact scores.
     results = squad_evaluate(examples, predictions)
+
+    # save log to file
+    if save_log_path:
+        util.save_eval_log(save_log_path, results)
+
     return results
 
 
@@ -506,6 +537,9 @@ def main():
     args.save_dir = util.get_save_dir(args.save_dir, args.name, training=True)
     args.output_dir = args.save_dir
 
+    global logger
+    logger = util.get_logger(args.save_dir, args.name)
+
     if args.doc_stride >= args.max_seq_length - args.max_query_length:
         logger.warning(
             "WARNING - You've set a doc stride which may be superior to the document length in some "
@@ -513,17 +547,18 @@ def main():
             "stride or increase the maximum length to ensure the features are correctly built."
         )
 
-    if (
-        os.path.exists(args.output_dir)
-        and os.listdir(args.output_dir)
-        and args.do_train
-        and not args.overwrite_output_dir
-    ):
-        raise ValueError(
-            "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
-                args.output_dir
-            )
-        )
+    # Use util.get_save_dir, comment this for now
+    # if (
+    #     os.path.exists(args.output_dir)
+    #     and os.listdir(args.output_dir)
+    #     and args.do_train
+    #     and not args.overwrite_output_dir
+    # ):
+    #     raise ValueError(
+    #         "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
+    #             args.output_dir
+    #         )
+    #     )
 
     # Setup distant debugging if needed
     if args.server_ip and args.server_port:
@@ -546,11 +581,11 @@ def main():
     args.device = device
 
     # Setup logging
-    logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN,
-    )
+    # logging.basicConfig(
+    #     format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
+    #     datefmt="%m/%d/%Y %H:%M:%S",
+    #     level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN,
+    # )
     logger.warning(
         "Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
         args.local_rank,
@@ -644,7 +679,7 @@ def main():
                     os.path.dirname(c)
                     for c in sorted(glob.glob(args.output_dir + "/**/" + WEIGHTS_NAME, recursive=True))
                 )
-                logging.getLogger("transformers.modeling_utils").setLevel(logging.WARN)  # Reduce model loading logs
+                # logging.getLogger("transformers.modeling_utils").setLevel(logging.WARN)  # Reduce model loading logs
         else:
             logger.info("Loading checkpoint %s for evaluation", args.model_name_or_path)
             checkpoints = [args.model_name_or_path]
@@ -658,7 +693,15 @@ def main():
             model.to(args.device)
 
             # Evaluate
-            result = evaluate(args, model, tokenizer, prefix=global_step)
+            result = evaluate(
+                args,
+                model,
+                tokenizer,
+                prefix=global_step,
+                save_dir=args.output_dir,
+                save_log_path=os.path.join(
+                    args.output_dir,
+                    'eval_result.json'))
 
             result = dict((k + ("_{}".format(global_step) if global_step else ""), v) for k, v in result.items())
             results.update(result)

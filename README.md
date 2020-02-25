@@ -46,7 +46,7 @@ or this for SQUAD 2.0 with default project settings
 
 ```bash
 python run_squad.py \
-  --name bert1 \
+  --name bert-test-1 \
   --model_type bert \
   --model_name_or_path bert-base-uncased \
   --do_train \
@@ -54,12 +54,17 @@ python run_squad.py \
   --do_lower_case \
   --train_file data/train-v2.0.json \
   --predict_file data/dev-v2.0.json \
-  --per_gpu_train_batch_size 6 \
+  --per_gpu_train_batch_size 8 \
   --learning_rate 3e-5 \
   --num_train_epochs 2.0 \
   --max_seq_length 384 \
-  --doc_stride 128 \ 
-  --version_2_with_negative     
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --evaluate_during_training \
+  --eval_all_checkpoints \
+  --save_best_only \
+  --logging_steps 2000 \
+  --save_steps 2000
 ```
 
 Training with the previously defined hyper-parameters yields the following results:
