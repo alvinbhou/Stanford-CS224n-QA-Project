@@ -61,7 +61,6 @@ python run_squad.py \
   --doc_stride 128 \
   --version_2_with_negative \
   --evaluate_during_training \
-  --eval_all_checkpoints \
   --save_best_only \
   --logging_steps 2000 \
   --save_steps 2000
