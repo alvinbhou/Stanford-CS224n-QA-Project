@@ -23,6 +23,8 @@ And for SQuAD2.0, you need to download:
 - [dev-v2.0.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v2.0.json)
 - [evaluate-v2.0.py](https://worksheets.codalab.org/rest/bundles/0x6b567e1cf2e041ec80d7098f031c5c9e/contents/blob/)
 
+Below is the example of training BERT for SQuAD1.1
+
 ```bash
 export SQUAD_DIR=/path/to/SQUAD
 
@@ -42,30 +44,9 @@ python run_squad.py \
   --output_dir /tmp/debug_squad/
 ```
 
-or this for SQUAD 2.0 with default project settings
+For SQuAD2.0, run ```./run_squad.sh```
 
-```bash
-python run_squad.py \
-  --name bert-test-1 \
-  --model_type bert \
-  --model_name_or_path bert-base-uncased \
-  --do_train \
-  --do_eval \
-  --do_lower_case \
-  --train_file data/train-v2.0.json \
-  --predict_file data/dev-v2.0.json \
-  --per_gpu_train_batch_size 8 \
-  --learning_rate 3e-5 \
-  --num_train_epochs 2.0 \
-  --max_seq_length 384 \
-  --doc_stride 128 \
-  --version_2_with_negative \
-  --evaluate_during_training \
-  --save_best_only \
-  --logging_steps 2000 \
-  --save_steps 2000
-```
-
+###TODO
 Training with the previously defined hyper-parameters yields the following results:
 
 ```bash
