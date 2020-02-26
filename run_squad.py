@@ -556,6 +556,9 @@ def main():
             "stride or increase the maximum length to ensure the features are correctly built."
         )
 
+    if not args.evaluate_during_saving and args.save_best_only:
+        raise ValueError("No best result without evaluation during saving")
+
     # Use util.get_save_dir, comment this for now
     # if (
     #     os.path.exists(args.output_dir)

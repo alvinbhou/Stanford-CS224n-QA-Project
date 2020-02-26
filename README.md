@@ -78,7 +78,54 @@ python run_squad.py \
   --save_steps 5000
 ```
 
-For XLNet-base-cased on 12GB RAM K80
+
+For BERT-large on 12GB RAM GPU
+```bash
+python run_squad.py \
+  --name bert-large \
+  --model_type bert \
+  --model_name_or_path bert-large-uncased-whole-word-masking-finetuned-squad \
+  --do_train \
+  --do_eval \
+  --do_lower_case \
+  --train_file data/train-v2.0.json \
+  --predict_file data/dev-v2.0.json \
+  --per_gpu_train_batch_size 8 \
+  --learning_rate 3e-5 \
+  --num_train_epochs 2.0 \
+  --max_seq_length 256 \
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --evaluate_during_saving \
+  --save_best_only \
+  --logging_steps 100 \
+  --save_steps 4000
+```
+
+For RoBERTa on 8GB RAM GPU
+```bash
+python run_squad.py \
+  --name roberta-base \
+  --model_type roberta \
+  --model_name_or_path roberta-base \
+  --do_train \
+  --do_eval \
+  --do_lower_case \
+  --train_file data/train-v2.0.json \
+  --predict_file data/dev-v2.0.json \
+  --per_gpu_train_batch_size 8 \
+  --learning_rate 3e-5 \
+  --num_train_epochs 2.0 \
+  --max_seq_length 384 \
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --evaluate_during_saving \
+  --save_best_only \
+  --logging_steps 100 \
+  --save_steps 2000
+```
+
+For XLNet-base-cased on 12GB RAM K80 (currently not working)
 ```bash
 python run_squad.py \
   --name xlnet-test \
@@ -97,10 +144,9 @@ python run_squad.py \
   --version_2_with_negative \
   --evaluate_during_saving \
   --save_best_only \
-  --logging_steps 5000 \
+  --logging_steps 500 \
   --save_steps 5000
 ```
-
 
 
 #### Distributed training
