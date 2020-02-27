@@ -15,19 +15,32 @@ class BertQA(nn.Module):
         Whether the model output the hidden states
     '''
 
-    def __init__(self, model_type='bert-large-uncased-whole-word-masking-finetuned-squad', output_hidden=True):
+    def __init__(self, model_type='bert-base-uncased', do_cls=True):
         super().__init__()
-        self.config = BertConfig.from_pretrained(model_type, output_hidden_states=output_hidden)
+        self.do_cls = do_cls
+        self.config = BertConfig.from_pretrained(model_type, output_hidden_states=do_cls)
         self.model = BertForQuestionAnswering.from_pretrained(model_type, config=self.config)
+        self.fc_cls = nn.Linear(1024, 2) if 'large' in model_type else nn.Linear(768, 2)
+        self.criterion_cls = nn.CrossEntropyLoss()
 
-    def forward(self, x, **kwargs):
-        return self.model(x, **kwargs)
+    def forward(self, x, y_cls=None, **kwargs):
+        if self.training and self.do_cls:
+            assert y_cls, 'No label for y_cls!'
+            outputs = self.model(x, **kwargs)
+            loss, hidden_states = outputs[0], outputs[3]
+            output_embeddings, _ = hidden_states  # (batch_size, sequence_length, hidden_size)
+            logits_cls = self.fc_cls(output_embeddings.permute([1, 0, 2])[0]).squeeze()  # (1, batch_size, hidden_size) -> (batch_size, 2)
+            loss_cls = self.criterion_cls(logits_cls, y_cls)
+            outputs[0] = loss + logits_cls
+            return outputs
+        else:
+            return self.model(x, **kwargs)
 
 
 if __name__ == "__main__":
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     # model = BertForQuestionAnswering.from_pretrained('bert-large-uncased-whole-word-masking-finetuned-squad')
-    model = BertQA()
+    model = BertQA(do_cls=False, model_type='bert-large-uncased-whole-word-masking-finetuned-squad')
     question, text = "Who was Jim Henson?", "Jim Henson was a nice puppet"
     input_ids = tokenizer.encode(question, text)
     print('Input ids', input_ids)
@@ -35,10 +48,9 @@ if __name__ == "__main__":
     print('Token type ids', token_type_ids)  # 0 for question, 1 for answer
     inputs = torch.tensor([input_ids])
     print('Input shape', inputs.shape)  # [CLS] + 5 + [SEP] + 6 + [SEP] = 14
-    start_scores, end_scores, hidden_states = model(inputs, token_type_ids=torch.tensor([token_type_ids]))
-
+    start_scores, end_scores = model(inputs, token_type_ids=torch.tensor([token_type_ids]))
     all_tokens = tokenizer.convert_ids_to_tokens(input_ids)
     answer = ' '.join(all_tokens[torch.argmax(start_scores): torch.argmax(end_scores) + 1])
     print('Answer:', answer)
-    print('Hidden states shape', hidden_states[0].shape)
+    # print('Hidden states shape', hidden_states[0].shape)
     assert answer == "a nice puppet"
