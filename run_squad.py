@@ -543,7 +543,7 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
 
 def main():
     args = get_bert_args()
-    args.save_dir = util.get_save_dir(args.save_dir, args.name, training=True)
+    args.save_dir = util.get_save_dir(args.save_dir, args.name, training=args.do_train)
     args.output_dir = args.save_dir
 
     global logger

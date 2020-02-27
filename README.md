@@ -23,33 +23,13 @@ And for SQuAD2.0, you need to download:
 - [dev-v2.0.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v2.0.json)
 - [evaluate-v2.0.py](https://worksheets.codalab.org/rest/bundles/0x6b567e1cf2e041ec80d7098f031c5c9e/contents/blob/)
 
-Below is the example of training BERT for SQuAD1.1
 
-```bash
-export SQUAD_DIR=/path/to/SQUAD
-
-python run_squad.py \
-  --model_type bert \
-  --model_name_or_path bert-base-cased \
-  --do_train \
-  --do_eval \
-  --do_lower_case \
-  --train_file $SQUAD_DIR/train-v1.1.json \
-  --predict_file $SQUAD_DIR/dev-v1.1.json \
-  --per_gpu_train_batch_size 12 \
-  --learning_rate 3e-5 \
-  --num_train_epochs 2.0 \
-  --max_seq_length 384 \
-  --doc_stride 128 \
-  --output_dir /tmp/debug_squad/
-```
-
-Training with the previously defined hyper-parameters yields the following results on Squad 1.1:
-
-```bash
-f1 = 88.52
-exact_match = 81.22
-```
+| Model           | EM       | F1      | NoAns_f1 | HasAns_f1 |
+| --------------- | -------- | ------- | -------- | --------- |
+| BERT-base       | 73.46    | 76.67   | 72.92    | 80.76     |
+| BERT-large      | 81.56    | 84.92   | 84.91    | 84.92     |
+| RoBERTa-base    | 78.82    | 82.16   | 80.93    | 83.49     |
+| ALBERT-base-v2  | 78.38    | 81.50   | 81.50    | 81.51     |
 
 
 For SQuAD2.0, you could run `./run_squad.sh`
@@ -171,7 +151,30 @@ python run_squad \
   --save_steps 2000
 ```
 
-For ALBERT-xlarge-v2 on 8GB RAM GPU (TODO)
+For ALBERT-large-v2 on 12GB RAM GPU 
+```bash
+python run_squad.py \
+  --name albert-large-v2 \
+  --model_type albert \
+  --model_name_or_path albert-large-v2 \
+  --do_train \
+  --do_eval \
+  --do_lower_case \
+  --train_file data/train-v2.0.json \
+  --predict_file data/dev-v2.0.json \
+  --per_gpu_train_batch_size 6 \
+  --learning_rate 3e-5 \
+  --num_train_epochs 2.0 \
+  --max_seq_length 384 \
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --evaluate_during_saving \
+  --save_best_only \
+  --logging_steps 50 \
+  --save_steps 2000
+```
+
+For ALBERT-xlarge-v2 on 12GB RAM GPU (＃TODO, takes 48 hours to train)
 ```bash
 python run_squad.py \
   --name albert-xlarge-v2 \
@@ -240,6 +243,52 @@ python run_squad.py \
   --save_steps 5000
 ```
 
+
+#### Testing
+Sample test script 
+
+```bash
+python run_squad.py \
+  --name bert-base-test \
+  --model_type bert \
+  --model_name_or_path save/train/bert-base-test-01 \
+  --do_eval \
+  --do_lower_case \
+  --predict_file data/dev-v2.0.json \
+  --per_gpu_train_batch_size 8 \
+  --max_seq_length 384 \
+  --doc_stride 128 \
+  --version_2_with_negative
+```
+
+#### Original Training script
+Below is the example of training BERT for SQuAD1.1
+
+```bash
+export SQUAD_DIR=/path/to/SQUAD
+
+python run_squad.py \
+  --model_type bert \
+  --model_name_or_path bert-base-cased \
+  --do_train \
+  --do_eval \
+  --do_lower_case \
+  --train_file $SQUAD_DIR/train-v1.1.json \
+  --predict_file $SQUAD_DIR/dev-v1.1.json \
+  --per_gpu_train_batch_size 12 \
+  --learning_rate 3e-5 \
+  --num_train_epochs 2.0 \
+  --max_seq_length 384 \
+  --doc_stride 128 \
+  --output_dir /tmp/debug_squad/
+```
+
+Training with the previously defined hyper-parameters yields the following results on Squad 1.1:
+
+```bash
+f1 = 88.52
+exact_match = 81.22
+```
 
 #### Distributed training
 
