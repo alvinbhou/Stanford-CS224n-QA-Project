@@ -23,18 +23,20 @@ class BertQA(nn.Module):
         self.fc_cls = nn.Linear(1024, 2) if 'large' in model_type else nn.Linear(768, 2)
         self.criterion_cls = nn.CrossEntropyLoss()
 
-    def forward(self, x, y_cls=None, **kwargs):
+    def forward(self, input_ids, y_cls=None, **kwargs):
         if self.training and self.do_cls:
-            assert y_cls, 'No label for y_cls!'
-            outputs = self.model(x, **kwargs)
-            loss, hidden_states = outputs[0], outputs[3]
-            output_embeddings, _ = hidden_states  # (batch_size, sequence_length, hidden_size)
-            logits_cls = self.fc_cls(output_embeddings.permute([1, 0, 2])[0]).squeeze()  # (1, batch_size, hidden_size) -> (batch_size, 2)
+            assert y_cls is not None, 'No label for y_cls!'
+            outputs = self.model(input_ids, **kwargs)
+            loss, hidden_states = outputs[0], outputs[3]                                    # loss: original QA loss from model
+            output_embeddings = hidden_states[-1]                                           # (batch_size, sequence_length, hidden_size)
+            logits_cls = self.fc_cls(output_embeddings.permute([1, 0, 2])[0]).squeeze()     # (1, batch_size, hidden_size) -> (batch_size, 2)
             loss_cls = self.criterion_cls(logits_cls, y_cls)
-            outputs[0] = loss + logits_cls
-            return outputs
+            return (loss, loss_cls), outputs[1:]
+        elif not self.training and self.do_cls:                                             # Eval mode
+            start_logits, end_logits, _ = self.model(input_ids, **kwargs)                   # discard hidden states
+            return start_logits, end_logits
         else:
-            return self.model(x, **kwargs)
+            return self.model(input_ids, **kwargs)
 
 
 if __name__ == "__main__":
