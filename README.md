@@ -118,9 +118,10 @@ python run_squad.py \
   --predict_file data/dev-v2.0.json \
   --per_gpu_train_batch_size 6 \
   --learning_rate 3e-5 \
-  --num_train_epochs 2.0 \
+  --num_train_epochs 3 \
   --max_seq_length 256 \
   --doc_stride 128 \
+  --seed 91 \
   --version_2_with_negative \
   --evaluate_during_saving \
   --save_best_only \
@@ -185,21 +186,21 @@ python run_squad.py \
   --do_lower_case \
   --train_file data/train-v2.0.json \
   --predict_file data/dev-v2.0.json \
-  --per_gpu_train_batch_size 16 \
+  --per_gpu_train_batch_size 4 \
   --learning_rate 3e-5 \
-  --num_train_epochs 2.0 \
-  --max_seq_length 384 \
+  --num_train_epochs 3.0 \
+  --max_seq_length 256 \
   --doc_stride 128 \
   --version_2_with_negative \
   --evaluate_during_saving \
   --save_best_only \
-  --logging_steps 50 \
-  --save_steps 1000
+  --logging_steps 100 \
+  --save_steps 3000
 ```
 
-For ALBERT-xxlarge-v1 on 12GB RAM GPU (TODO)
+For ALBERT-xxlarge-v1 on NC24 (22hr per epoch)
 ```bash
-python run_squad.py \
+python run_squad.py   
   --name albert-xxlarge-v1 \
   --model_type albert \
   --model_name_or_path albert-xxlarge-v1 \
@@ -208,16 +209,17 @@ python run_squad.py \
   --do_lower_case \
   --train_file data/train-v2.0.json \
   --predict_file data/dev-v2.0.json \
-  --per_gpu_train_batch_size 8 \
-  --learning_rate 3e-5 \
-  --num_train_epochs 2.0 \
-  --max_seq_length 384 \
+  --per_gpu_train_batch_size 4  \
+  --learning_rate 3e-5  \
+  --num_train_epochs 3.0 \
+  --max_seq_length 256 \
   --doc_stride 128 \
   --version_2_with_negative \
-  --evaluate_during_saving \
+  --evaluate_during_saving  \
   --save_best_only \
   --logging_steps 100 \
   --save_steps 2000
+
 ```
 
 For XLNet-base-cased on 12GB RAM K80 (currently not working)
