@@ -316,7 +316,7 @@ def train(args, train_dataset, model, tokenizer):
                         logger.info("Saving optimizer and scheduler states to %s", output_dir)
 
                         if args.save_best_only:
-                            util.save_eval_log(os.path.join(output_dir, "eval_result.json"), {global_step: eval_results})
+                            util.save_json_file(os.path.join(output_dir, "eval_result.json"), {global_step: eval_results})
 
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()
@@ -466,7 +466,7 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
 
     # save log to file
     if save_log_path:
-        util.save_eval_log(save_log_path, results)
+        util.save_json_file(save_log_path, results)
 
     return results
 
@@ -717,6 +717,9 @@ def main():
 
             result = dict((k + ("_{}".format(global_step) if global_step else ""), v) for k, v in result.items())
             results.update(result)
+
+            logger.info(f'Convert format and Writing submission file to directory {args.output_dir}...')
+            util.convert_submission_format_and_save(args.output_dir, prediction_file_path=os.path.join(args.output_dir, 'predictions_.json'))
 
     logger.info("Results: {}".format(results))
 

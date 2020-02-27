@@ -5,6 +5,7 @@ Author:
 """
 import logging
 import os
+import csv
 import queue
 import re
 import shutil
@@ -16,7 +17,7 @@ import tqdm
 import numpy as np
 import ujson as json
 
-from collections import Counter
+from collections import Counter, OrderedDict
 
 
 class SQuAD(data.Dataset):
@@ -538,9 +539,20 @@ def get_logger(log_dir, name):
     return logger
 
 
-def save_eval_log(path, data):
+def save_json_file(path, data):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
+
+
+def convert_submission_format_and_save(save_dir, prediction_file_path):
+    with open(prediction_file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    result = OrderedDict(sorted(data.items()))
+    with open(os.path.join(save_dir, 'dev_submission.csv'), 'w', newline='', encoding='utf-8') as csv_fh:
+        csv_writer = csv.writer(csv_fh, delimiter=',')
+        csv_writer.writerow(['Id', 'Predicted'])
+        for k, v in result.items():
+            csv_writer.writerow([k, v])
 
 
 def torch_from_json(path, dtype=torch.float32):
