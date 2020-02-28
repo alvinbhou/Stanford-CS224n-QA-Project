@@ -14,6 +14,7 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 | BERT-base       | 73.46    | 76.67   | 72.92    | 80.76     |
 | BERT-large      | 81.56    | 84.92   | 84.91    | 84.92     |
 | RoBERTa-base    | 78.82    | 82.16   | 80.93    | 83.49     |
+| RoBERTa-large   | 82.82    | 86.32   | 87.59    | 84.94     |
 | ALBERT-base-v2  | 78.38    | 81.50   | 81.50    | 81.51     |
 | ALBERT-large-v2 | 81.16    | 84.22   | 83.24    | 85.29     |
 
