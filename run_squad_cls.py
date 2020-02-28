@@ -193,6 +193,7 @@ def train(args, train_dataset, model, tokenizer):
 
     tr_loss, logging_loss = 0.0, 0.0
     tr_loss_cls, logging_loss_cls = 0.0, 0.0
+    tr_loss_qa, logg_loss_qa = 0.0, 0.0
     model.zero_grad()
     train_iterator = trange(
         epochs_trained, int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0]
@@ -244,15 +245,16 @@ def train(args, train_dataset, model, tokenizer):
             outputs = model(**inputs, y_cls=y_cls)
             # model outputs are always tuple in transformers (see doc)
             (loss_qa, loss_cls) = outputs[0]
-            loss = loss_qa + loss_cls
+            loss = loss_qa + 0.5 * loss_cls
 
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel (not distributed) training
                 loss_cls = loss_cls.mean()  # mean() to average on multi-gpu parallel (not distributed) training
+                loss_qa = loss_qa.mean()
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
                 loss_cls = loss_cls / args.gradient_accumulation_steps
-
+                loss_qa = loss_qa / args.gradient_accumulation_steps
             if args.fp16:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
@@ -261,6 +263,7 @@ def train(args, train_dataset, model, tokenizer):
 
             tr_loss += loss.item()
             tr_loss_cls += loss_cls.item()
+            tr_loss_qa += loss_qa.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 if args.fp16:
                     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
@@ -293,8 +296,10 @@ def train(args, train_dataset, model, tokenizer):
                     tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
                     tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                     tb_writer.add_scalar("loss_cls", (tr_loss_cls - logging_loss_cls) / args.logging_steps, global_step)
+                    tb_writer.add_scalar(("loss_qa"), (tr_loss_qa - logg_loss_qa) / args.logging_steps, global_step)
                     logging_loss = tr_loss
                     logging_loss_cls = tr_loss_cls
+                    logg_loss_qa = tr_loss_qa
 
                 # Save model checkpoint
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
