@@ -7,32 +7,18 @@ Run the default setup first! See [READEME_bidaf](README_bidaf.md)
 
 Based on the script [`run_squad.py`](https://github.com/huggingface/transformers/blob/master/examples/run_squad.py).
 
-#### Fine-tuning BERT on SQuAD1.0
 
-This example code fine-tunes BERT on the SQuAD1.0 dataset. It runs in 24 min (with BERT-base) or 68 min (with BERT-large)
-on a single tesla V100 16GB. The data for SQuAD can be downloaded with the following links and should be saved in a
-$SQUAD_DIR directory.
-
-* [train-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v1.1.json)
-* [dev-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json)
-* [evaluate-v1.1.py](https://github.com/allenai/bi-att-flow/blob/master/squad/evaluate-v1.1.py)
-
-And for SQuAD2.0, you need to download:
-
-- [train-v2.0.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v2.0.json)
-- [dev-v2.0.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v2.0.json)
-- [evaluate-v2.0.py](https://worksheets.codalab.org/rest/bundles/0x6b567e1cf2e041ec80d7098f031c5c9e/contents/blob/)
-
-
+### Benchmarks
 | Model           | EM       | F1      | NoAns_f1 | HasAns_f1 |
 | --------------- | -------- | ------- | -------- | --------- |
 | BERT-base       | 73.46    | 76.67   | 72.92    | 80.76     |
 | BERT-large      | 81.56    | 84.92   | 84.91    | 84.92     |
 | RoBERTa-base    | 78.82    | 82.16   | 80.93    | 83.49     |
 | ALBERT-base-v2  | 78.38    | 81.50   | 81.50    | 81.51     |
+| ALBERT-large-v2 | 81.16    | 84.22   | 83.24    | 85.29     |
 
-
-For SQuAD2.0, you could run `./run_squad.sh`
+#### Training
+For SQuAD2.0 example, you could run `./run_squad.sh`
 
 For BERT-base on 8GB RAM GPU
 
@@ -263,7 +249,24 @@ python run_squad.py \
   --version_2_with_negative
 ```
 
-#### Original Training script
+### Original Training script
+
+#### Fine-tuning BERT on SQuAD1.0
+
+This example code fine-tunes BERT on the SQuAD1.0 dataset. It runs in 24 min (with BERT-base) or 68 min (with BERT-large)
+on a single tesla V100 16GB. The data for SQuAD can be downloaded with the following links and should be saved in a
+$SQUAD_DIR directory.
+
+* [train-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v1.1.json)
+* [dev-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json)
+* [evaluate-v1.1.py](https://github.com/allenai/bi-att-flow/blob/master/squad/evaluate-v1.1.py)
+
+And for SQuAD2.0, you need to download:
+
+- [train-v2.0.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v2.0.json)
+- [dev-v2.0.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v2.0.json)
+- [evaluate-v2.0.py](https://worksheets.codalab.org/rest/bundles/0x6b567e1cf2e041ec80d7098f031c5c9e/contents/blob/)
+
 Below is the example of training BERT for SQuAD1.1
 
 ```bash

@@ -722,7 +722,8 @@ def main():
         for checkpoint in checkpoints:
             # Reload the model
             global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
-            model = model_class.from_pretrained(checkpoint)  # , force_download=True)
+            # model = model_class.from_pretrained(checkpoint)   # BertQA is not a PreTrainedModel class
+            model = torch.load(checkpoint) 
             model.to(args.device)
 
             # Evaluate
