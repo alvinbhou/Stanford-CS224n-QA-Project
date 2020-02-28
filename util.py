@@ -544,6 +544,13 @@ def save_json_file(path, data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 
+def read_and_update_json_file(path, data):
+    with open(path, 'r', encoding='utf-8') as f:
+        data_to_updated = json.load(f)
+    data_to_updated.update(data)
+    save_json_file(path, data_to_updated)
+
+
 def convert_submission_format_and_save(save_dir, prediction_file_path):
     with open(prediction_file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)

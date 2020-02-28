@@ -308,11 +308,16 @@ def train(args, train_dataset, model, tokenizer):
                     # Get eval results and save the log to output path
                     if args.local_rank in [-1, 0] and args.evaluate_during_saving:
                         output_path = os.path.join(output_dir, 'eval_result.json')
-                        eval_results = evaluate(args, model, tokenizer, save_dir=output_dir, save_log_path=output_path)
+                        eval_results = evaluate(args, model, tokenizer, save_dir=output_dir, save_log_path=None)
                         for key, value in eval_results.items():
                             tb_writer.add_scalar("eval_{}".format(key), value, global_step)
                         # log eval result
                         logger.info(f"Evaluation result at {global_step} step: {eval_results}")
+                        # save current result at args.output_dir
+                        if os.path.exists(os.path.join(args.output_dir, "eval_result.json")):
+                            util.read_and_update_json_file(os.path.join(args.output_dir, "eval_result.json"), {global_step: eval_results})
+                        else:
+                            util.save_json_file(os.path.join(args.output_dir, "eval_result.json"), {global_step: eval_results})
 
                     # Save cur best model only
                     # Take care of distributed/parallel training
@@ -723,7 +728,7 @@ def main():
             # Reload the model
             global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
             # model = model_class.from_pretrained(checkpoint)   # BertQA is not a PreTrainedModel class
-            model = torch.load(checkpoint) 
+            model = torch.load(checkpoint)
             model.to(args.device)
 
             # Evaluate
