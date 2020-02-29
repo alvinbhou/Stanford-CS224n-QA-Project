@@ -195,7 +195,7 @@ def train(args, train_dataset, model, tokenizer):
     tr_loss, logging_loss = 0.0, 0.0
     tr_loss_cls, logging_loss_cls = 0.0, 0.0
     tr_loss_qa, logging_loss_qa = 0.0, 0.0
-    tr_accuracy, logging_accuracy = 0.0, 0.0
+    tr_accuracy_cls, logging_accuracy_cls = 0.0, 0.0
 
     model.zero_grad()
     train_iterator = trange(
@@ -247,20 +247,27 @@ def train(args, train_dataset, model, tokenizer):
 
             outputs = model(**inputs, y_cls=y_cls)
             # model outputs are always tuple in transformers (see doc)
+
+            # Compute loss
             (loss_qa, loss_cls) = outputs[0]
             loss = loss_qa + 0.5 * loss_cls
 
-            accuracy = outputs[2]
+            # Compute training classification accuracy
+            logits_cls = outputs[-1]
+            predicted_cls = torch.max(logits_cls, 1)[1]
+            accuracy_cls = (predicted_cls == y_cls).sum().float() / y_cls.size()[0]
 
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel (not distributed) training
                 loss_cls = loss_cls.mean()  # mean() to average on multi-gpu parallel (not distributed) training
                 loss_qa = loss_qa.mean()
-                accuracy = accuracy.mean()
+                accuracy_cls = accuracy_cls.mean()
+
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
                 loss_cls = loss_cls / args.gradient_accumulation_steps
                 loss_qa = loss_qa / args.gradient_accumulation_steps
+                accuracy_cls = accuracy_cls / args.gradient_accumulation_steps
             if args.fp16:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
@@ -270,7 +277,7 @@ def train(args, train_dataset, model, tokenizer):
             tr_loss += loss.item()
             tr_loss_cls += loss_cls.item()
             tr_loss_qa += loss_qa.item()
-            tr_accuracy += accuracy
+            tr_accuracy_cls += accuracy_cls
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 if args.fp16:
                     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
@@ -304,11 +311,11 @@ def train(args, train_dataset, model, tokenizer):
                     tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                     tb_writer.add_scalar("loss_cls", (tr_loss_cls - logging_loss_cls) / args.logging_steps, global_step)
                     tb_writer.add_scalar(("loss_qa"), (tr_loss_qa - logging_loss_qa) / args.logging_steps, global_step)
-                    tb_writer.add_scalar(("accuracy"), tr_accuracy / args.logging_steps, global_step)
+                    tb_writer.add_scalar(("accuracy_cls"), (tr_accuracy_cls - logging_accuracy_cls) / args.logging_steps, global_step)
                     logging_loss = tr_loss
                     logging_loss_cls = tr_loss_cls
                     logging_loss_qa = tr_loss_qa
-                    tr_accuracy = 0
+                    logging_accuracy_cls = tr_accuracy_cls
 
                 # Save model checkpoint
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
@@ -391,6 +398,8 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     all_results = []
     start_time = timeit.default_timer()
 
+    y_cls_correct = 0
+    y_cls_incorrect = 0
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
@@ -420,6 +429,7 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
         for i, example_index in enumerate(example_indices):
             eval_feature = features[example_index.item()]
             unique_id = int(eval_feature.unique_id)
+            is_impossible = eval_feature.is_impossible
 
             output = [to_list(output[i]) for output in outputs]
 
@@ -443,9 +453,14 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
 
             else:
                 start_logits, end_logits, logits_cls = output
+                if np.argmax(logits_cls) == int(not is_impossible):
+                    y_cls_correct += 1
+                else:
+                    y_cls_incorrect += 1
                 result = SquadResult(unique_id, start_logits, end_logits)
             all_results.append(result)
 
+    # print(y_cls_correct, y_cls_incorrect)
     evalTime = timeit.default_timer() - start_time
     logger.info("  Evaluation done in total %f secs (%f sec per example)", evalTime, evalTime / len(dataset))
 
@@ -498,6 +513,8 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     # Compute the F1 and exact scores.
     results = squad_evaluate(examples, predictions)
 
+    # Add CLS accuracy to result
+    results.update({'cls_accuracy': y_cls_correct / (y_cls_correct + y_cls_incorrect)})
     # save log to file
     if save_log_path:
         util.save_json_file(save_log_path, results)
@@ -547,6 +564,8 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
         else:
             processor = SquadV2Processor() if args.version_2_with_negative else SquadV1Processor()
             if evaluate:
+                # examples_eval_tmp_train = processor.get_train_examples(args.data_dir, filename=args.predict_file)
+                # print(examples_eval_tmp_train[0].qas_id, examples_eval_tmp_train[0].is_impossible)
                 examples = processor.get_dev_examples(args.data_dir, filename=args.predict_file)
             else:
                 examples = processor.get_train_examples(args.data_dir, filename=args.train_file)

@@ -27,15 +27,12 @@ class BertQA(nn.Module):
         if self.training and self.do_cls:
             assert y_cls is not None, 'No label for y_cls!'
             outputs = self.model(input_ids, **kwargs)
-            loss, hidden_states = outputs[0], outputs[3]                                    # loss: original QA loss from model
+            loss, start_scores, end_scores, hidden_states = outputs[0], outputs[1], outputs[2], outputs[3]  # loss: original QA loss from model
             output_embeddings = hidden_states[-1]                                           # (batch_size, sequence_length, hidden_size)
             logits_cls = self.fc_cls(output_embeddings.permute([1, 0, 2])[0]).squeeze()     # (1, batch_size, hidden_size) -> (batch_size, 2)
             loss_cls = self.criterion_cls(logits_cls, y_cls)
+            return (loss, loss_cls), start_scores, end_scores, logits_cls
 
-            predicted_cls = torch.max(logits_cls, 1)[1]
-            accuracy = (predicted_cls == y_cls).sum().float() / y_cls.size()[0]
-
-            return (loss, loss_cls), outputs[1:], accuracy
         elif not self.training and self.do_cls:                                             # Eval mode
             start_logits, end_logits, hidden_states = self.model(input_ids, **kwargs)
             output_embeddings = hidden_states[-1]                                           # (batch_size, sequence_length, hidden_size)

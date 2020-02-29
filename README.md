@@ -245,14 +245,16 @@ python run_squad_cls.py \
   --predict_file data/dev-v2.0.json \
   --per_gpu_train_batch_size 4 \
   --learning_rate 3e-5 \
-  --num_train_epochs 2.0 \
+  --num_train_epochs 3 \
   --max_seq_length 384 \
   --doc_stride 128 \
   --version_2_with_negative \
   --evaluate_during_saving \
   --save_best_only \
   --logging_steps 100 \
-  --save_steps 3000
+  --save_steps 3000 \
+  --seed 123 \
+  --gradient_accumulation_steps 2
 ```
 
 
