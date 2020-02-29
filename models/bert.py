@@ -31,7 +31,11 @@ class BertQA(nn.Module):
             output_embeddings = hidden_states[-1]                                           # (batch_size, sequence_length, hidden_size)
             logits_cls = self.fc_cls(output_embeddings.permute([1, 0, 2])[0]).squeeze()     # (1, batch_size, hidden_size) -> (batch_size, 2)
             loss_cls = self.criterion_cls(logits_cls, y_cls)
-            return (loss, loss_cls), outputs[1:]
+
+            predicted_cls = torch.max(logits_cls, 1)[1]
+            accuracy = (predicted_cls == y_cls).sum().float() / y_cls.size()[0]
+
+            return (loss, loss_cls), outputs[1:], accuracy
         elif not self.training and self.do_cls:                                             # Eval mode
             start_logits, end_logits, hidden_states = self.model(input_ids, **kwargs)
             output_embeddings = hidden_states[-1]                                           # (batch_size, sequence_length, hidden_size)

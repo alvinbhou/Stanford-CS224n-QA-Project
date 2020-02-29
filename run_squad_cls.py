@@ -30,6 +30,7 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 import util
+import shutil
 
 from models.bert import BertQA
 
@@ -193,7 +194,9 @@ def train(args, train_dataset, model, tokenizer):
 
     tr_loss, logging_loss = 0.0, 0.0
     tr_loss_cls, logging_loss_cls = 0.0, 0.0
-    tr_loss_qa, logg_loss_qa = 0.0, 0.0
+    tr_loss_qa, logging_loss_qa = 0.0, 0.0
+    tr_accuracy, logging_accuracy = 0.0, 0.0
+
     model.zero_grad()
     train_iterator = trange(
         epochs_trained, int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0]
@@ -215,7 +218,6 @@ def train(args, train_dataset, model, tokenizer):
 
             model.train()
             batch = tuple(t.to(args.device) for t in batch)
-
             inputs = {
                 "input_ids": batch[0],
                 "attention_mask": batch[1],
@@ -226,10 +228,11 @@ def train(args, train_dataset, model, tokenizer):
 
             # NEW!
             # Compute if answer exists
+            cls_index = batch[5]
             batch_size = len(inputs['start_positions'])
             # Logic: !((start == 0) and (end == 0)) -> 1: Has answer, 0: No Answer
-            y_cls = (~(torch.eq(inputs['start_positions'], torch.zeros(batch_size, device=args.device)) &
-                       torch.eq(inputs['end_positions'], torch.zeros(batch_size, device=args.device)))).long()
+            y_cls = (~(torch.eq(inputs['start_positions'], cls_index) &
+                       torch.eq(inputs['end_positions'], cls_index))).long()
             if args.model_type in ["xlm", "roberta", "distilbert", "camembert"]:
                 del inputs["token_type_ids"]
 
@@ -247,10 +250,13 @@ def train(args, train_dataset, model, tokenizer):
             (loss_qa, loss_cls) = outputs[0]
             loss = loss_qa + 0.5 * loss_cls
 
+            accuracy = outputs[2]
+
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel (not distributed) training
                 loss_cls = loss_cls.mean()  # mean() to average on multi-gpu parallel (not distributed) training
                 loss_qa = loss_qa.mean()
+                accuracy = accuracy.mean()
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
                 loss_cls = loss_cls / args.gradient_accumulation_steps
@@ -264,6 +270,7 @@ def train(args, train_dataset, model, tokenizer):
             tr_loss += loss.item()
             tr_loss_cls += loss_cls.item()
             tr_loss_qa += loss_qa.item()
+            tr_accuracy += accuracy
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 if args.fp16:
                     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
@@ -296,10 +303,12 @@ def train(args, train_dataset, model, tokenizer):
                     tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
                     tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                     tb_writer.add_scalar("loss_cls", (tr_loss_cls - logging_loss_cls) / args.logging_steps, global_step)
-                    tb_writer.add_scalar(("loss_qa"), (tr_loss_qa - logg_loss_qa) / args.logging_steps, global_step)
+                    tb_writer.add_scalar(("loss_qa"), (tr_loss_qa - logging_loss_qa) / args.logging_steps, global_step)
+                    tb_writer.add_scalar(("accuracy"), tr_accuracy / args.logging_steps, global_step)
                     logging_loss = tr_loss
                     logging_loss_cls = tr_loss_cls
-                    logg_loss_qa = tr_loss_qa
+                    logging_loss_qa = tr_loss_qa
+                    tr_accuracy = 0
 
                 # Save model checkpoint
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
@@ -397,7 +406,6 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
                 del inputs["token_type_ids"]
 
             example_indices = batch[3]
-
             # XLNet and XLM use more arguments for their predictions
             if args.model_type in ["xlnet", "xlm"]:
                 inputs.update({"cls_index": batch[4], "p_mask": batch[5]})
@@ -436,7 +444,6 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
             else:
                 start_logits, end_logits, logits_cls = output
                 result = SquadResult(unique_id, start_logits, end_logits)
-
             all_results.append(result)
 
     evalTime = timeit.default_timer() - start_time
@@ -572,6 +579,8 @@ def main():
     args = get_bert_args()
     args.save_dir = util.get_save_dir(args.save_dir, args.name, training=args.do_train)
     args.output_dir = args.save_dir
+
+    shutil.copy2('run_squad.sh', os.path.join(args.save_dir, 'run_squad.sh'))
 
     global logger
     logger = util.get_logger(args.save_dir, args.name)
