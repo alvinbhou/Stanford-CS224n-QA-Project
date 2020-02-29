@@ -710,14 +710,14 @@ def main():
         # Take care of distributed/parallel training
         model_to_save = model.module if hasattr(model, "module") else model
         # model_to_save.save_pretrained(output_dir)  # BertQA is not a PreTrainedModel class
-        torch.save(model_to_save, os.path.join(output_dir, 'custom_model.pt'))  # save entire model
+        torch.save(model_to_save, os.path.join(args.output_dir, 'custom_model.pt'))  # save entire model
 
         # Good practice: save your training arguments together with the trained model
         torch.save(args, os.path.join(args.output_dir, "training_args.bin"))
 
         # Load a trained model and vocabulary that you have fine-tuned
         # model = model_class.from_pretrained(args.output_dir)  # BertQA is not a PreTrainedModel class
-        model = torch.load(os.path.join(output_dir, 'custom_model.pt'))
+        model = torch.load(os.path.join(args.output_dir, 'custom_model.pt'))
         tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
         model.to(args.device)
 
