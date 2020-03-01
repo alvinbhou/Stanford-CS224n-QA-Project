@@ -26,6 +26,11 @@ def get_bert_args():
                         action='store_true',
                         help='Whether only save the best model')
 
+    parser.add_argument('--cached_features_file',
+                        default=None,
+                        type=str,
+                        help='Squad features cache file path')
+
     parser.add_argument(
         "--model_type",
         default=None,
@@ -120,6 +125,7 @@ def get_bert_args():
     )
     parser.add_argument("--do_train", action="store_true", help="Whether to run training.")
     parser.add_argument("--do_eval", action="store_true", help="Whether to run eval on the dev set.")
+    parser.add_argument("--do_output", action="store_true", help="Whether to output model output on the dev set.")
     parser.add_argument(
         "--evaluate_during_training", action="store_true", help="Run evaluation during training at each logging step."
     )

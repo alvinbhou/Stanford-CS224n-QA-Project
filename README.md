@@ -259,7 +259,7 @@ python run_squad_cls.py \
 ```
 
 
-#### Testing
+#### Dev Testing
 Sample test script 
 
 ```bash
@@ -274,6 +274,22 @@ python run_squad.py \
   --max_seq_length 384 \
   --doc_stride 128 \
   --version_2_with_negative
+```
+
+#### Generate model outputs
+```bash
+python run_squad.py \
+  --name bert-large-01 \
+  --model_type bert \
+  --model_name_or_path save/train/bert-large-01 \
+  --do_output \
+  --do_lower_case \
+  --train_file data/train-v2.0.json \
+  --per_gpu_train_batch_size 8 \
+  --max_seq_length 384 \
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --cached_features_file cached_train_bert-large-uncased-whole-word-masking_256
 ```
 
 ### Original Training script
