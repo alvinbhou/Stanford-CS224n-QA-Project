@@ -398,8 +398,9 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     all_results = []
     start_time = timeit.default_timer()
 
-    y_cls_correct = 0
-    y_cls_incorrect = 0
+    # y_cls_correct = 0
+    # y_cls_incorrect = 0
+    y_cls_tp, y_cls_tn, y_cls_fp, y_cls_fn = 0, 0, 0, 0
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
@@ -454,9 +455,15 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
             else:
                 start_logits, end_logits, logits_cls = output
                 if np.argmax(logits_cls) == int(not is_impossible):
-                    y_cls_correct += 1
+                    if is_impossible:
+                        y_cls_tn += 1
+                    else:
+                        y_cls_tp += 1
                 else:
-                    y_cls_incorrect += 1
+                    if is_impossible:
+                        y_cls_fp += 1
+                    else:
+                        y_cls_fn += 1
                 result = SquadResult(unique_id, start_logits, end_logits)
             all_results.append(result)
 
@@ -513,8 +520,11 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     # Compute the F1 and exact scores.
     results = squad_evaluate(examples, predictions)
 
+    cls_accuracy = (y_cls_tn + y_cls_tp) / (y_cls_tn + y_cls_tp + y_cls_fn + y_cls_fp)
+    cls_no_ans_accuracy = y_cls_tn / (y_cls_tn + y_cls_fp)
+    cls_has_ans_accuracy = y_cls_tp / (y_cls_tp + y_cls_fn)
     # Add CLS accuracy to result
-    results.update({'cls_accuracy': y_cls_correct / (y_cls_correct + y_cls_incorrect)})
+    results.update({'cls_accuracy': cls_accuracy, 'cls_no_ans_accuracy':cls_no_ans_accuracy,  'cls_has_ans_accuracy': cls_has_ans_accuracy})
     # save log to file
     if save_log_path:
         util.save_json_file(save_log_path, results)
