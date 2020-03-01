@@ -277,7 +277,7 @@ def train(args, train_dataset, model, tokenizer):
             tr_loss += loss.item()
             tr_loss_cls += loss_cls.item()
             tr_loss_qa += loss_qa.item()
-            tr_accuracy_cls += accuracy_cls
+            tr_accuracy_cls += accuracy_cls.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 if args.fp16:
                     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
