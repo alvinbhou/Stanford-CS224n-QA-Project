@@ -690,7 +690,7 @@ def main():
 
     # TODO
     # Test BERT-base model only for now
-    model = BertQA(model_type='bert-base-uncased', do_cls=True)
+    model = BertQA(model_type=args.model_name_or_path, do_cls=True)
 
     if args.local_rank == 0:
         # Make sure only the first process in distributed training will download model & vocab
