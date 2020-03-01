@@ -397,8 +397,9 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     all_results = []
     start_time = timeit.default_timer()
 
-    y_cls_hasAns_correct = 0
-    y_cls_noAns_correct = 0
+    # y_cls_correct = 0
+    # y_cls_incorrect = 0
+    y_cls_tp, y_cls_tn, y_cls_fp, y_cls_fn = 0, 0, 0, 0
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
@@ -455,9 +456,14 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
 
                 if np.argmax(logits_cls) == int(not is_impossible):
                     if is_impossible:
-                        y_cls_noAns_correct += 1
+                        y_cls_tn += 1
                     else:
-                        y_cls_hasAns_correct += 1
+                        y_cls_tp += 1
+                else:
+                    if is_impossible:
+                        y_cls_fp += 1
+                    else:
+                        y_cls_fn += 1
                 result = SquadResult(unique_id, start_logits, end_logits)
                 # Add cls prediction
                 if args.force_cls_pred:
@@ -533,10 +539,11 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     # Compute the F1 and exact scores.
     results = squad_evaluate(examples, predictions)
 
+    cls_accuracy = (y_cls_tn + y_cls_tp) / (y_cls_tn + y_cls_tp + y_cls_fn + y_cls_fp)
+    cls_no_ans_accuracy = y_cls_tn / (y_cls_tn + y_cls_fp)
+    cls_has_ans_accuracy = y_cls_tp / (y_cls_tp + y_cls_fn)
     # Add CLS accuracy to result
-    results.update({'cls_accuracy': (y_cls_noAns_correct + y_cls_hasAns_correct) / (results['NoAns_total'] + results['HasAns_total']),
-                    'cls_NoAns_accuracy': y_cls_noAns_correct / results['NoAns_total'],
-                    'cls_HasAns_accuracy': y_cls_hasAns_correct / results['HasAns_total']})
+    results.update({'cls_accuracy': cls_accuracy, 'cls_no_ans_accuracy':cls_no_ans_accuracy,  'cls_has_ans_accuracy': cls_has_ans_accuracy})
     # save log to file
     if save_log_path:
         util.save_json_file(save_log_path, results)
@@ -710,7 +717,7 @@ def main():
 
     # TODO
     # Test BERT-base model only for now
-    model = BertQA(model_type='bert-base-uncased', do_cls=True)
+    model = BertQA(model_type=args.model_name_or_path, do_cls=True)
 
     if args.local_rank == 0:
         # Make sure only the first process in distributed training will download model & vocab
