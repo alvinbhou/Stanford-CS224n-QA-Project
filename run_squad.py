@@ -477,7 +477,8 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
 
 
 def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save_dir='', save_output_path=None):
-    dataset = load_and_cache_examples(args, tokenizer, evaluate=is_dev, output_examples=False)
+    dataset, examples, features = load_and_cache_examples(args, tokenizer, evaluate=is_dev, output_examples=True)
+    logger.info(f'REAL number of examples {len(examples)}!')
 
     if not save_dir and args.local_rank in [-1, 0]:
         os.makedirs(save_dir)
@@ -497,7 +498,8 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
     logger.info("  Num examples = %d", len(dataset))
     logger.info("  Batch size = %d", args.eval_batch_size)
 
-    all_results = []
+    all_results = [0] * len(examples)
+    all_example_index_set = set()
     start_time = timeit.default_timer()
     for batch in tqdm(dataloader, desc="Output scores..."):
         model.eval()
@@ -527,6 +529,8 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
 
         for i, example_index in enumerate(example_indices):
             output = [to_list(output[i]) for output in outputs]
+            eval_feature = features[example_index.item()]
+            # unique_id = int(eval_feature.unique_id)
 
             # Some models (XLNet, XLM) use 5 arguments for their predictions, while the other "simpler"
             # models only use two.
@@ -536,24 +540,18 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
                 end_logits = output[2]
                 end_top_index = output[3]
                 cls_logits = output[4]
-
-                result = SquadResult(
-                    unique_id,
-                    start_logits,
-                    end_logits,
-                    start_top_index=start_top_index,
-                    end_top_index=end_top_index,
-                    cls_logits=cls_logits,
-                )
-
+                result = [start_logits, end_logits]
             else:
                 start_logits, end_logits = output
                 result = [start_logits, end_logits]
-            all_results.append(result)
+            all_results[eval_feature.example_index] = result
+            all_example_index_set.add(eval_feature.example_index)
 
+    # Sanity check for all example_index added
+    assert len(all_example_index_set) == len(examples), 'Not enough data from dataset! Literally WTF?'
     json_to_save = {'model_name': args.name,
                     'type': 'dev' if is_dev else 'train',
-                    'num_examples': len(dataset),
+                    'num_examples': len(examples),
                     'output': all_results}
     util.save_json_file(save_output_path, json_to_save)
 
@@ -605,9 +603,12 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
             processor = SquadV2Processor() if args.version_2_with_negative else SquadV1Processor()
             if evaluate:
                 examples = processor.get_dev_examples(args.data_dir, filename=args.predict_file)
+                # Sanity check for loading the correct example
+                assert examples[0].question_text == 'In what country is Normandy located?', 'Invalid dev file!'
             else:
                 examples = processor.get_train_examples(args.data_dir, filename=args.train_file)
-
+                # Sanity check for loading the correct example
+                assert examples[0].question_text == 'When did Beyonce start becoming popular?', 'Invalid train file!'
         features, dataset = squad_convert_examples_to_features(
             examples=examples,
             tokenizer=tokenizer,
@@ -618,15 +619,19 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
             return_dataset="pt",
             threads=args.threads,
         )
-
         if args.local_rank in [-1, 0]:
             logger.info("Saving features into cached file %s", cached_features_file)
             torch.save({"features": features, "dataset": dataset, "examples": examples}, cached_features_file)
 
+    # Sanity check example length with the correct numbers
+    if evaluate:
+        assert len(examples) == 6078
+    else:
+        assert len(examples) == 130319
+
     if args.local_rank == 0 and not evaluate:
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
         torch.distributed.barrier()
-
     if output_examples:
         return dataset, examples, features
     return dataset
@@ -848,7 +853,7 @@ def main():
                 args,
                 model,
                 tokenizer,
-                is_dev=True,
+                is_dev=False,
                 prefix=global_step,
                 save_dir=args.output_dir,
                 save_output_path=os.path.join(
