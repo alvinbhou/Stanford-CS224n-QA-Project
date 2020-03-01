@@ -213,6 +213,8 @@ def get_bert_args():
     parser.add_argument("--server_port", type=str, default="", help="Can be used for distant debugging.")
 
     parser.add_argument("--threads", type=int, default=1, help="multiple threads for converting example to features")
+    # NEW!
+    parser.add_argument("--force_cls_pred", action="store_true", help="Whether to use cls to predict no answer.")
     args = parser.parse_args()
     return args
 

@@ -30,7 +30,6 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 import util
-import shutil
 
 from models.bert import BertQA
 
@@ -277,7 +276,7 @@ def train(args, train_dataset, model, tokenizer):
             tr_loss += loss.item()
             tr_loss_cls += loss_cls.item()
             tr_loss_qa += loss_qa.item()
-            tr_accuracy_cls += accuracy_cls
+            tr_accuracy_cls += accuracy_cls.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 if args.fp16:
                     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
@@ -398,8 +397,8 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     all_results = []
     start_time = timeit.default_timer()
 
-    y_cls_correct = 0
-    y_cls_incorrect = 0
+    y_cls_hasAns_correct = 0
+    y_cls_noAns_correct = 0
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
@@ -453,11 +452,17 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
 
             else:
                 start_logits, end_logits, logits_cls = output
+
                 if np.argmax(logits_cls) == int(not is_impossible):
-                    y_cls_correct += 1
-                else:
-                    y_cls_incorrect += 1
+                    if is_impossible:
+                        y_cls_noAns_correct += 1
+                    else:
+                        y_cls_hasAns_correct += 1
                 result = SquadResult(unique_id, start_logits, end_logits)
+                # Add cls prediction
+                if args.force_cls_pred:
+                    result.cls_prediction = np.argmax(logits_cls)
+
             all_results.append(result)
 
     # print(y_cls_correct, y_cls_incorrect)
@@ -510,11 +515,28 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
             tokenizer,
         )
 
+    if args.force_cls_pred:
+        example_index_to_features = {}
+        for feature in features:
+            example_index_to_features[feature.example_index] = feature
+
+        unique_id_to_result = {}
+        for result in all_results:
+            unique_id_to_result[result.unique_id] = result
+
+        for example_index, example in enumerate(examples):
+            eval_feature = example_index_to_features[example_index]
+            eval_result = unique_id_to_result[eval_feature.unique_id]
+            if not eval_result.cls_prediction:
+                predictions[example.qas_id] = ""
+
     # Compute the F1 and exact scores.
     results = squad_evaluate(examples, predictions)
 
     # Add CLS accuracy to result
-    results.update({'cls_accuracy': y_cls_correct / (y_cls_correct + y_cls_incorrect)})
+    results.update({'cls_accuracy': (y_cls_noAns_correct + y_cls_hasAns_correct) / (results['NoAns_total'] + results['HasAns_total']),
+                    'cls_NoAns_accuracy': y_cls_noAns_correct / results['NoAns_total'],
+                    'cls_HasAns_accuracy': y_cls_hasAns_correct / results['HasAns_total']})
     # save log to file
     if save_log_path:
         util.save_json_file(save_log_path, results)
@@ -598,8 +620,6 @@ def main():
     args = get_bert_args()
     args.save_dir = util.get_save_dir(args.save_dir, args.name, training=args.do_train)
     args.output_dir = args.save_dir
-
-    shutil.copy2('run_squad.sh', os.path.join(args.save_dir, 'run_squad.sh'))
 
     global logger
     logger = util.get_logger(args.save_dir, args.name)
@@ -730,6 +750,7 @@ def main():
         model_to_save = model.module if hasattr(model, "module") else model
         # model_to_save.save_pretrained(output_dir)  # BertQA is not a PreTrainedModel class
         torch.save(model_to_save, os.path.join(args.output_dir, 'custom_model.pt'))  # save entire model
+        tokenizer.save_pretrained(args.output_dir) # save tokenizer
 
         # Good practice: save your training arguments together with the trained model
         torch.save(args, os.path.join(args.output_dir, "training_args.bin"))
@@ -755,8 +776,8 @@ def main():
         else:
             logger.info("Loading checkpoint %s for evaluation", args.model_name_or_path)
             checkpoints = [args.model_name_or_path]
-
         logger.info("Evaluate the following checkpoints: %s", checkpoints)
+
 
         for checkpoint in checkpoints:
             # Reload the model
