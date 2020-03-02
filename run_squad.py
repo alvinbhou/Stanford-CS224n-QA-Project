@@ -26,10 +26,11 @@ import json
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, ConcatDataset, TensorDataset, ChainDataset
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 import util
+import collections
 
 from transformers import (
     WEIGHTS_NAME,
@@ -478,7 +479,7 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
 
 def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save_dir='', save_output_path=None):
     dataset, examples, features = load_and_cache_examples(args, tokenizer, evaluate=is_dev, output_examples=True)
-    logger.info(f'REAL number of examples {len(examples)}!')
+    logger.info(f'REAL number of examples {len(examples)} and features {len(features)}!')
 
     if not save_dir and args.local_rank in [-1, 0]:
         os.makedirs(save_dir)
@@ -498,9 +499,17 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
     logger.info("  Num examples = %d", len(dataset))
     logger.info("  Batch size = %d", args.eval_batch_size)
 
-    all_results = [0] * len(examples)
+    # all_results = collections.defaultdict(list)
+    all_results = [None] * len(examples)
     all_example_index_set = set()
     start_time = timeit.default_timer()
+    # Sanity check code
+    # test = []
+    # for x in dataset:
+        # test.append(x[-1].item())
+        # all_example_index_set.add(x[-1].item())
+    # print(len(all_example_index_set))
+    util.save_json_file(os.path.join(args.output_dir, 'test.txt'), {'test': test})
     for batch in tqdm(dataloader, desc="Output scores..."):
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
@@ -515,7 +524,9 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
             if args.model_type in ["xlm", "roberta", "distilbert", "camembert"]:
                 del inputs["token_type_ids"]
 
-            example_indices = batch[3]
+            # Important!
+            # Now we save exampl_indices (or so-called unique id to last position of batch)
+            example_indices = batch[3] if is_dev else batch[-1]
             # XLNet and XLM use more arguments for their predictions
             if args.model_type in ["xlnet", "xlm"]:
                 inputs.update({"cls_index": batch[4], "p_mask": batch[5]})
@@ -531,6 +542,7 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
             output = [to_list(output[i]) for output in outputs]
             eval_feature = features[example_index.item()]
             # unique_id = int(eval_feature.unique_id)
+            # print(example_index.item(), unique_id)
 
             # Some models (XLNet, XLM) use 5 arguments for their predictions, while the other "simpler"
             # models only use two.
@@ -544,14 +556,21 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
             else:
                 start_logits, end_logits = output
                 result = [start_logits, end_logits]
-            all_results[eval_feature.example_index] = result
-            all_example_index_set.add(eval_feature.example_index)
+
+            if is_dev:
+                example_index = eval_feature.example_index  # strange mapping for dev
+            all_results[example_index] = result
+            all_example_index_set.add(example_index)
+
+    print('# of example_index added:', len(all_example_index_set))
+    # util.save_json_file(os.path.join(args.output_dir, 'save_index_set.json'), {'index_set': save_index_set})
 
     # Sanity check for all example_index added
-    assert len(all_example_index_set) == len(examples), 'Not enough data from dataset! Literally WTF?'
+    # assert len(all_example_index_set) == len(examples), 'Not enough data from dataset! Literally WTF?'
+    print(f'None is not in all_results: {None not in all_results}')
     json_to_save = {'model_name': args.name,
                     'type': 'dev' if is_dev else 'train',
-                    'num_examples': len(examples),
+                    'num_examples': len(all_example_index_set),
                     'output': all_results}
     util.save_json_file(save_output_path, json_to_save)
 
@@ -563,14 +582,25 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
 
     # Load data features from cache or dataset file
     input_dir = args.data_dir if args.data_dir else "."
-    cached_features_file = os.path.join(
-        input_dir,
-        "cached_{}_{}_{}".format(
-            "dev" if evaluate else "train",
-            list(filter(None, args.model_name_or_path.split("/"))).pop(),
-            str(args.max_seq_length),
-        ),
-    )
+    cached_features_file = ''
+    if not args.do_output:
+        cached_features_file = os.path.join(
+            input_dir,
+            "cached_{}_{}_{}".format(
+                "dev" if evaluate else "train",
+                list(filter(None, args.model_name_or_path.split("/"))).pop(),
+                str(args.max_seq_length),
+            ),
+        )
+    else:
+        cached_features_file = os.path.join(
+            input_dir,
+            "cached_output_{}_{}_{}".format(
+                "dev" if evaluate else "train",
+                list(filter(None, args.model_name_or_path.split("/"))).pop(),
+                str(args.max_seq_length),
+            ),
+        )
 
     # Overwrite cached_features_file if args.cached_features_file is not None
     if args.cached_features_file is not None:
@@ -606,9 +636,11 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
                 # Sanity check for loading the correct example
                 assert examples[0].question_text == 'In what country is Normandy located?', 'Invalid dev file!'
             else:
+                # Normal get train examples
                 examples = processor.get_train_examples(args.data_dir, filename=args.train_file)
                 # Sanity check for loading the correct example
                 assert examples[0].question_text == 'When did Beyonce start becoming popular?', 'Invalid train file!'
+
         features, dataset = squad_convert_examples_to_features(
             examples=examples,
             tokenizer=tokenizer,
@@ -623,6 +655,12 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
             logger.info("Saving features into cached file %s", cached_features_file)
             torch.save({"features": features, "dataset": dataset, "examples": examples}, cached_features_file)
 
+    if args.do_output and not evaluate:
+        example_indices = torch.tensor([f.example_index for f in features])
+        og_tensors = dataset.tensors
+        dataset = TensorDataset(*og_tensors, example_indices)
+        assert len(og_tensors) + 1 == len(dataset.tensors), 'Failed to add example_indices to Dataset!'
+    print(len(examples))
     # Sanity check example length with the correct numbers
     if evaluate:
         assert len(examples) == 6078
