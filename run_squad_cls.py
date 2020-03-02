@@ -30,6 +30,7 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 import util
+import collections
 
 from models.bert import BertQA
 
@@ -522,20 +523,28 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
         )
 
     if args.force_cls_pred:
-        example_index_to_features = {}
+        example_index_to_features = collections.defaultdict(list)
         for feature in features:
-            example_index_to_features[feature.example_index] = feature
+            example_index_to_features[feature.example_index].append(feature)
 
         unique_id_to_result = {}
         for result in all_results:
             unique_id_to_result[result.unique_id] = result
 
+        n_force = 0
         for example_index, example in enumerate(examples):
-            eval_feature = example_index_to_features[example_index]
-            eval_result = unique_id_to_result[eval_feature.unique_id]
-            if not eval_result.cls_prediction:
+            eval_features = example_index_to_features[example_index]
+            n_pred_noAns = 0
+            for eval_feature in eval_features:
+                eval_result = unique_id_to_result[eval_feature.unique_id]
+                if not eval_result.cls_prediction:
+                    n_pred_noAns += 1
+            if n_pred_noAns / len(eval_features) > 0.5:
                 predictions[example.qas_id] = ""
+                n_force += 1
 
+        print("\n")
+        print("num of force prediction:", n_force)
     # Compute the F1 and exact scores.
     results = squad_evaluate(examples, predictions)
 
