@@ -506,10 +506,10 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
     # Sanity check code
     # test = []
     # for x in dataset:
-        # test.append(x[-1].item())
-        # all_example_index_set.add(x[-1].item())
+    # test.append(x[-1].item())
+    # all_example_index_set.add(x[-1].item())
     # print(len(all_example_index_set))
-    util.save_json_file(os.path.join(args.output_dir, 'test.txt'), {'test': test})
+    # util.save_json_file(os.path.join(args.output_dir, 'test.txt'), {'test': test})
     for batch in tqdm(dataloader, desc="Output scores..."):
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
