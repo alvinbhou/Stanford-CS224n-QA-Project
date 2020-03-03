@@ -559,9 +559,10 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
 
             if is_dev:
                 example_index = eval_feature.example_index  # strange mapping for dev
-            all_results[example_index] = result
-            all_example_index_set.add(example_index)
+            all_results[example_index.item()] = result
+            all_example_index_set.add(example_index.item())
 
+    print('min of example_index:', min(all_example_index_set))
     print('# of example_index added:', len(all_example_index_set))
     # util.save_json_file(os.path.join(args.output_dir, 'save_index_set.json'), {'index_set': save_index_set})
 
@@ -680,7 +681,7 @@ def main():
     assert not (args.do_output and args.do_train), 'Don\'t output and train at the same time!'
     if args.do_output:
         sub_dir_prefix = 'output'
-    elif args.do_output:
+    elif args.do_train:
         sub_dir_prefix = 'train'
     else:
         sub_dir_prefix = 'test'

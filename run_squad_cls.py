@@ -634,7 +634,14 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
 
 def main():
     args = get_bert_args()
-    args.save_dir = util.get_save_dir(args.save_dir, args.name, training=args.do_train)
+    assert not (args.do_output and args.do_train), 'Don\'t output and train at the same time!'
+    if args.do_output:
+        sub_dir_prefix = 'output'
+    elif args.do_train:
+        sub_dir_prefix = 'train'
+    else:
+        sub_dir_prefix = 'test'
+    args.save_dir = util.get_save_dir(args.save_dir, args.name, sub_dir_prefix)
     args.output_dir = args.save_dir
 
     global logger
@@ -765,15 +772,16 @@ def main():
         # Take care of distributed/parallel training
         model_to_save = model.module if hasattr(model, "module") else model
         # model_to_save.save_pretrained(output_dir)  # BertQA is not a PreTrainedModel class
-        torch.save(model_to_save, os.path.join(args.output_dir, 'custom_model.pt'))  # save entire model
+        torch.save(model_to_save, os.path.join(args.output_dir, 'pytorch_model.bin'))  # save entire model
         tokenizer.save_pretrained(args.output_dir) # save tokenizer
+        config.save_pretrained(args.output_dir) # save config
 
         # Good practice: save your training arguments together with the trained model
         torch.save(args, os.path.join(args.output_dir, "training_args.bin"))
 
         # Load a trained model and vocabulary that you have fine-tuned
         # model = model_class.from_pretrained(args.output_dir)  # BertQA is not a PreTrainedModel class
-        model = torch.load(os.path.join(args.output_dir, 'custom_model.pt'))
+        model = torch.load(os.path.join(args.output_dir, 'pytorch_model.bin'))
         tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
         model.to(args.device)
 
@@ -791,15 +799,14 @@ def main():
                 # logging.getLogger("transformers.modeling_utils").setLevel(logging.WARN)  # Reduce model loading logs
         else:
             logger.info("Loading checkpoint %s for evaluation", args.model_name_or_path)
-            checkpoints = [args.model_name_or_path]
+            checkpoints = [args.eval_dir]
         logger.info("Evaluate the following checkpoints: %s", checkpoints)
-
 
         for checkpoint in checkpoints:
             # Reload the model
             global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
             # model = model_class.from_pretrained(checkpoint)   # BertQA is not a PreTrainedModel class
-            model = torch.load(checkpoint)
+            model = torch.load(os.path.join(checkpoint, 'pytorch_model.bin'))
             model.to(args.device)
 
             # Evaluate
@@ -817,6 +824,7 @@ def main():
             results.update(result)
 
             logger.info(f'Convert format and Writing submission file to directory {args.output_dir}...')
+
             util.convert_submission_format_and_save(args.output_dir, prediction_file_path=os.path.join(args.output_dir, 'predictions_.json'))
 
     logger.info("Results: {}".format(results))
