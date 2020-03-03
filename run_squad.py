@@ -561,8 +561,6 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
                 example_index = eval_feature.example_index  # strange mapping for dev
             all_results[example_index.item()] = result
             all_example_index_set.add(example_index.item())
-
-    print('min of example_index:', min(all_example_index_set))
     print('# of example_index added:', len(all_example_index_set))
     # util.save_json_file(os.path.join(args.output_dir, 'save_index_set.json'), {'index_set': save_index_set})
 
@@ -574,6 +572,7 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
                     'num_examples': len(all_example_index_set),
                     'output': all_results}
     util.save_json_file(save_output_path, json_to_save)
+    print(min(all_example_index_set), max(all_example_index_set))
 
 
 def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False):
