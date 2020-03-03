@@ -260,13 +260,29 @@ python run_squad_cls.py \
 
 
 #### Dev Testing
-Sample test script 
+Test for run_squad.py
 
 ```bash
 python run_squad.py \
   --name bert-base-test \
   --model_type bert \
   --model_name_or_path save/train/bert-base-test-01 \
+  --do_eval \
+  --do_lower_case \
+  --predict_file data/dev-v2.0.json \
+  --per_gpu_train_batch_size 8 \
+  --max_seq_length 384 \
+  --doc_stride 128 \
+  --version_2_with_negative
+```
+
+Test for run_squad_cls.py
+```bash
+python run_squad_cls.py \
+  --name bert-base-cls \
+  --model_type bert \
+  --model_name_or_path bert-base-uncased \
+  --eval_dir save/train/bert-base-cls-01/cur_best \
   --do_eval \
   --do_lower_case \
   --predict_file data/dev-v2.0.json \
