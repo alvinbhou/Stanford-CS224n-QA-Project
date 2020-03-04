@@ -559,8 +559,10 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
 
             if is_dev:
                 example_index = eval_feature.example_index  # strange mapping for dev
-            all_results[example_index.item()] = result
-            all_example_index_set.add(example_index.item())
+            else:
+                example_index = example_index.item()
+            all_results[example_index] = result
+            all_example_index_set.add(example_index)
     print('# of example_index added:', len(all_example_index_set))
     # util.save_json_file(os.path.join(args.output_dir, 'save_index_set.json'), {'index_set': save_index_set})
 
