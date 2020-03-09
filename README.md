@@ -309,6 +309,15 @@ python run_squad.py \
   --cached_features_file cached_train_bert-large-uncased-whole-word-masking_256
 ```
 
+### Ensemble features
+```
+albert-xxlarge-v1
+albert-large-v2
+roberta-large
+bert-large
+Shape: train (130319, 4, 2, 256) dev (6078, 4, 2, 256)
+```
+
 ### Original Training script
 
 #### Fine-tuning BERT on SQuAD1.0
