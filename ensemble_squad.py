@@ -478,7 +478,7 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     return results
 
 
-def ensemble_vote(args, save_dir='', save_log_path=None, prefix=''):
+def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob_mode='add'):
     examples, all_model_features, all_model_results, tokenizers = load_saved_examples(args, evaluate=True)
 
     if not save_dir and args.local_rank in [-1, 0]:
@@ -514,7 +514,7 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix=''):
 
     all_predictions = []
     all_probs = []
-
+    logger.info(f'predict_prob_mode: {predict_prob_mode}')
     for model_idx in tqdm(range(len(tokenizers)), desc="Predicting"):
         features = all_model_features[model_idx]
         all_results = all_model_results[model_idx]
@@ -534,6 +534,7 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix=''):
             args.version_2_with_negative,
             args.null_score_diff_threshold,
             tokenizer,
+            prob_mode=predict_prob_mode
         )
         all_predictions.append(predictions)
         all_probs.append(probs)
@@ -546,6 +547,7 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix=''):
     final_predictions = collections.OrderedDict()
     for qas_id in all_predictions[0].keys():
         probs = np.array([d_prob[qas_id] for d_prob in all_probs])
+        # print(probs)
         idx = np.argmax(probs)
         final_predictions[qas_id] = all_predictions[idx][qas_id]
 
@@ -801,7 +803,7 @@ def main():
 
     # Generate ensemble output
     if args.do_output and args.local_rank in [-1, 0]:
-        results = ensemble_vote(args, save_dir=args.save_dir)
+        results = ensemble_vote(args, save_dir=args.save_dir, predict_prob_mode='multiply')
 
     return results
 
