@@ -32,7 +32,7 @@ from tqdm import tqdm, trange
 import util
 import collections
 
-from models.bert import BertQA
+from models.bert import BertQA, RobertaQA
 
 from transformers import (
     WEIGHTS_NAME,
@@ -244,7 +244,6 @@ def train(args, train_dataset, model, tokenizer):
                     inputs.update(
                         {"langs": (torch.ones(batch[0].shape, dtype=torch.int64) * args.lang_id).to(args.device)}
                     )
-
             outputs = model(**inputs, y_cls=y_cls)
             # model outputs are always tuple in transformers (see doc)
 
@@ -733,7 +732,10 @@ def main():
 
     # TODO
     # Test BERT-base model only for now
-    model = BertQA(model_type=args.model_name_or_path, do_cls=True)
+    if args.model_type == 'bert':
+        model = BertQA(model_type=args.model_name_or_path, do_cls=True)
+    else:
+        model = RobertaQA(model_type=args.model_name_or_path, do_cls=True)
 
     if args.local_rank == 0:
         # Make sure only the first process in distributed training will download model & vocab
