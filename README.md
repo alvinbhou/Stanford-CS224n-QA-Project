@@ -302,12 +302,31 @@ python run_squad.py \
   --do_output \
   --do_lower_case \
   --train_file data/train-v2.0.json \
+  --predict_file data/dev-v2.0.json \
   --per_gpu_train_batch_size 8 \
   --max_seq_length 384 \
   --doc_stride 128 \
   --version_2_with_negative \
   --cached_features_file cached_train_bert-large-uncased-whole-word-masking_256
 ```
+#### Run ensemble
+
+```bash
+python ensemble_squad.py \
+ --name ensemble-test \
+  --model_type placeholder \
+  --model_name_or_path placeholder \
+  --do_output \
+  --do_lower_case \
+  --train_file data/train-v2.0.json \
+  --per_gpu_train_batch_size 8 \
+  --max_seq_length 256 \
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --predict_file data/dev-v2.0.json \
+  --saved_processed_data_dir save/output
+```
+
 
 ### Ensemble features
 ```

@@ -31,6 +31,11 @@ def get_bert_args():
                         type=str,
                         help='Squad features cache file path')
 
+    parser.add_argument('--saved_processed_data_dir',
+                        default=None,
+                        type=str,
+                        help='Saved model output directory')
+
     parser.add_argument(
         "--model_type",
         default=None,

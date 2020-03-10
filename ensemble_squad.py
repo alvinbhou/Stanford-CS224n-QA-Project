@@ -31,7 +31,8 @@ from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 import util
 import collections
-import h5py
+import pickle
+import hack
 
 from transformers import (
     WEIGHTS_NAME,
@@ -374,12 +375,9 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
                 "attention_mask": batch[1],
                 "token_type_ids": batch[2],
             }
-
             if args.model_type in ["xlm", "roberta", "distilbert", "camembert"]:
                 del inputs["token_type_ids"]
-
             example_indices = batch[3]
-
             # XLNet and XLM use more arguments for their predictions
             if args.model_type in ["xlnet", "xlm"]:
                 inputs.update({"cls_index": batch[4], "p_mask": batch[5]})
@@ -388,7 +386,6 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
                     inputs.update(
                         {"langs": (torch.ones(batch[0].shape, dtype=torch.int64) * args.lang_id).to(args.device)}
                     )
-
             outputs = model(**inputs)
         """
 
@@ -481,7 +478,97 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     return results
 
 
-def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False):
+def ensemble_vote(args, save_dir='', save_log_path=None, prefix=''):
+    examples, all_model_features, all_model_results, tokenizers = load_saved_examples(args, evaluate=True)
+
+    if not save_dir and args.local_rank in [-1, 0]:
+        os.makedirs(save_dir)
+
+    args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
+
+    # Note that DistributedSampler samples randomly
+    # eval_sampler = SequentialSampler(dataset)
+    # eval_dataloader = DataLoader(dataset, sampler=eval_sampler, batch_size=args.eval_batch_size)
+
+    # multi-gpu evaluate
+    if args.n_gpu > 1 and not isinstance(model, torch.nn.DataParallel):
+        model = torch.nn.DataParallel(model)
+
+    # Eval!
+    logger.info(f"***** Running ensemble {prefix}*****")
+    logger.info("  Num examples = %d", len(examples))
+    logger.info("  Batch size = %d", args.eval_batch_size)
+
+    # We do pure voting now, not taking new inputs
+    # start_time = timeit.default_timer()
+    # evalTime = timeit.default_timer() - start_time
+    # logger.info(" Evaluation done in total %f secs (%f sec per example)", evalTime, evalTime / len(dataset))
+
+    # Compute predictions
+    output_prediction_file = os.path.join(save_dir, "predictions_{}.json".format(prefix))
+    output_nbest_file = os.path.join(save_dir, "nbest_predictions_{}.json".format(prefix))
+    if args.version_2_with_negative:
+        output_null_log_odds_file = os.path.join(save_dir, "null_odds_{}.json".format(prefix))
+    else:
+        output_null_log_odds_file = None
+
+    all_predictions = []
+    all_probs = []
+
+    for model_idx in tqdm(range(len(tokenizers)), desc="Predicting"):
+        features = all_model_features[model_idx]
+        all_results = all_model_results[model_idx]
+        tokenizer = tokenizers[model_idx]
+
+        predictions, probs = hack.compute_predictions_logits(
+            examples,
+            features,
+            all_results,
+            args.n_best_size,
+            args.max_answer_length,
+            args.do_lower_case,
+            output_prediction_file,
+            output_nbest_file,
+            output_null_log_odds_file,
+            args.verbose_logging,
+            args.version_2_with_negative,
+            args.null_score_diff_threshold,
+            tokenizer,
+        )
+        all_predictions.append(predictions)
+        all_probs.append(probs)
+        # continue
+
+    # num of predictions
+    num_of_predicions = len(all_predictions[0])
+    logger.info(f'Number of predicions {num_of_predicions}')
+
+    final_predictions = collections.OrderedDict()
+    for qas_id in all_predictions[0].keys():
+        probs = np.array([d_prob[qas_id] for d_prob in all_probs])
+        idx = np.argmax(probs)
+        final_predictions[qas_id] = all_predictions[idx][qas_id]
+
+    logger.info('Model individual results')
+    for i in range(len(tokenizers)):
+        results = squad_evaluate(examples, all_predictions[i])
+        logger.info(results)
+
+    # Compute the F1 and exact scores.
+    logger.info('Ensemble results')
+    final_results = squad_evaluate(examples, final_predictions)
+    logger.info(final_results)
+
+    # save log to file
+    util.save_json_file(os.path.join(save_dir, 'eval_results.json'), final_results)
+
+    # save prediction to file
+    util.save_json_file(os.path.join(save_dir, 'predictions.json'), final_predictions)
+
+    return results
+
+
+def load_saved_examples(args, evaluate=False):
     if args.local_rank not in [-1, 0] and not evaluate:
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
         torch.distributed.barrier()
@@ -508,30 +595,29 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
             examples = processor.get_train_examples(args.data_dir, filename=args.train_file)
             # Sanity check for loading the correct example
             assert examples[0].question_text == 'When did Beyonce start becoming popular?', 'Invalid train file!'
+    assert args.saved_processed_data_dir, 'args.saved_processed_data_dir not defined!'
+    ensemble_dir = args.saved_processed_data_dir
 
-    all_start_positions = torch.tensor([e.start_position for e in examples], dtype=torch.long)
-    all_end_positions = torch.tensor([e.end_position for e in examples], dtype=torch.long)
-    all_is_impossible = torch.tensor([e.is_impossible for e in examples], dtype=torch.float)
-    if not evaluate:
-        with h5py.File(os.path.join(root_dir, 'model_output.h5'), 'r') as hf:
-            all_model_outputs = torch.tensor(hf['model_output_dev'][:], dtype=torch.float)
+    if evaluate:
+        with open(os.path.join(ensemble_dir, 'saved_data_dev.pkl'), 'rb') as f:
+            saved_data = pickle.load(f)
     else:
-        with h5py.File(os.path.join(root_dir, 'model_output.h5'), 'r') as hf:
-            all_model_outputs = torch.tensor(hf['model_output_train'][:], dtype=torch.float)
+        with open(os.path.join(ensemble_dir, 'saved_data_train.pkl'), 'rb') as f:
+            saved_data = pickle.load(f)
+    # saved_data: [features, all_results, tokenizer]
+    features, all_results, tokenizer = saved_data
 
-    dataset = TensorDataset(all_start_positions, all_end_positions, all_is_impossible, all_model_outputs)
-
-    print(len(dataset))
+    print(len(examples))
     # Sanity check example length with the correct numbers
     if evaluate:
-        assert len(dataset) == 6078
+        assert len(examples) == 6078
     else:
-        assert len(dataset) == 130319
+        assert len(examples) == 130319
 
     if args.local_rank == 0 and not evaluate:
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
         torch.distributed.barrier()
-    return dataset
+    return examples, features, all_results, tokenizer
 
 
 def main():
@@ -543,6 +629,8 @@ def main():
         sub_dir_prefix = 'train'
     else:
         sub_dir_prefix = 'test'
+    # No matter what, we do ensemble here lol
+    sub_dir_prefix = 'ensemble'
     args.save_dir = util.get_save_dir(args.save_dir, args.name, sub_dir_prefix)
     args.output_dir = args.save_dir
 
@@ -558,19 +646,6 @@ def main():
 
     if not args.evaluate_during_saving and args.save_best_only:
         raise ValueError("No best result without evaluation during saving")
-
-    # Use util.get_save_dir, comment this for now
-    # if (
-    #     os.path.exists(args.output_dir)
-    #     and os.listdir(args.output_dir)
-    #     and args.do_train
-    #     and not args.overwrite_output_dir
-    # ):
-    #     raise ValueError(
-    #         "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
-    #             args.output_dir
-    #         )
-    #     )
 
     # Setup distant debugging if needed
     if args.server_ip and args.server_port:
@@ -611,33 +686,33 @@ def main():
     set_seed(args)
 
     # Load pretrained model and tokenizer
-    if args.local_rank not in [-1, 0]:
-        # Make sure only the first process in distributed training will download model & vocab
-        torch.distributed.barrier()
+    # if args.local_rank not in [-1, 0]:
+    #     # Make sure only the first process in distributed training will download model & vocab
+    #     torch.distributed.barrier()
 
-    args.model_type = args.model_type.lower()
-    config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
-    config = config_class.from_pretrained(
-        args.config_name if args.config_name else args.model_name_or_path,
-        cache_dir=args.cache_dir if args.cache_dir else None,
-    )
-    tokenizer = tokenizer_class.from_pretrained(
-        args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
-        do_lower_case=args.do_lower_case,
-        cache_dir=args.cache_dir if args.cache_dir else None,
-    )
-    model = model_class.from_pretrained(
-        args.model_name_or_path,
-        from_tf=bool(".ckpt" in args.model_name_or_path),
-        config=config,
-        cache_dir=args.cache_dir if args.cache_dir else None,
-    )
+    # args.model_type = args.model_type.lower()
+    # config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
+    # config = config_class.from_pretrained(
+    #     args.config_name if args.config_name else args.model_name_or_path,
+    #     cache_dir=args.cache_dir if args.cache_dir else None,
+    # )
+    # tokenizer = tokenizer_class.from_pretrained(
+    #     args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
+    #     do_lower_case=args.do_lower_case,
+    #     cache_dir=args.cache_dir if args.cache_dir else None,
+    # )
+    # model = model_class.from_pretrained(
+    #     args.model_name_or_path,
+    #     from_tf=bool(".ckpt" in args.model_name_or_path),
+    #     config=config,
+    #     cache_dir=args.cache_dir if args.cache_dir else None,
+    # )
 
     if args.local_rank == 0:
         # Make sure only the first process in distributed training will download model & vocab
         torch.distributed.barrier()
 
-    model.to(args.device)
+    # model.to(args.device)
 
     logger.info("Training/evaluation parameters %s", args)
 
@@ -651,7 +726,7 @@ def main():
             apex.amp.register_half_function(torch, "einsum")
         except ImportError:
             raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
-
+    """
     # Training
     if args.do_train:
         train_dataset = load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False)
@@ -722,40 +797,11 @@ def main():
             util.convert_submission_format_and_save(args.output_dir, prediction_file_path=os.path.join(args.output_dir, 'predictions_.json'))
 
     logger.info("Results: {}".format(results))
+    """
 
-    # Generate output
+    # Generate ensemble output
     if args.do_output and args.local_rank in [-1, 0]:
-        if args.do_train:
-            logger.info("Loading checkpoints saved during training for output")
-            checkpoints = [args.output_dir]
-            if args.eval_all_checkpoints:
-                checkpoints = list(
-                    os.path.dirname(c)
-                    for c in sorted(glob.glob(args.output_dir + "/**/" + WEIGHTS_NAME, recursive=True))
-                )
-                # logging.getLogger("transformers.modeling_utils").setLevel(logging.WARN)  # Reduce model loading logs
-        else:
-            logger.info("Loading checkpoint %s for output", args.model_name_or_path)
-            checkpoints = [args.model_name_or_path]
-
-        logger.info("Output the following checkpoints: %s", checkpoints)
-
-        for checkpoint in checkpoints:
-            # Reload the model
-            global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
-            model = model_class.from_pretrained(checkpoint)  # , force_download=True)
-            model.to(args.device)
-
-            generate_model_outputs(
-                args,
-                model,
-                tokenizer,
-                is_dev=False,
-                prefix=global_step,
-                save_dir=args.output_dir,
-                save_output_path=os.path.join(
-                    args.output_dir,
-                    'model_output.json'))
+        results = ensemble_vote(args, save_dir=args.save_dir)
 
     return results
 

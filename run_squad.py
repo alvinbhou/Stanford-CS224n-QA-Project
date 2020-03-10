@@ -580,7 +580,6 @@ def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save
     util.save_json_file(os.path.join(save_dir, 'config.json'), json_to_save)
 
 
-
 def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False):
     if args.local_rank not in [-1, 0] and not evaluate:
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
@@ -603,7 +602,7 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
             input_dir,
             "cached_output_{}_{}_{}".format(
                 "dev" if evaluate else "train",
-                list(filter(None, args.model_name_or_path.split("/"))).pop(),
+                list(filter(None, args.model_name_or_path.replace('/cur_best', '').split("/"))).pop(),
                 str(args.max_seq_length),
             ),
         )
