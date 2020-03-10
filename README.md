@@ -296,19 +296,20 @@ python run_squad_cls.py \
 #### Generate model outputs
 ```bash
 python run_squad.py \
-  --name bert-large-01 \
-  --model_type bert \
-  --model_name_or_path save/train/bert-large-01 \
+  --name albert-xxlarge-v1 \
+  --model_type albert \
+  --model_name_or_path save/train/albert-xxlarge-v1/cur_best \
   --do_output \
   --do_lower_case \
   --train_file data/train-v2.0.json \
   --predict_file data/dev-v2.0.json \
   --per_gpu_train_batch_size 8 \
-  --max_seq_length 384 \
+  --max_seq_length 256 \
   --doc_stride 128 \
   --version_2_with_negative \
-  --cached_features_file cached_train_bert-large-uncased-whole-word-masking_256
+  --per_gpu_eval_batch_size 128
 ```
+
 #### Run ensemble
 
 ```bash
