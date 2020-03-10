@@ -18,6 +18,7 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 | RoBERTa-large   | 83.35    | 86.62   | 86.36    | 86.43     | 6          | 3      |
 | ALBERT-base-v2  | 78.38    | 81.50   | 81.50    | 81.51     | 8          | 2      |
 | ALBERT-large-v2 | 81.16    | 84.22   | 83.24    | 85.29     | 6          | 2      |
+|ALBERT-xxlarge-v1| 86.23    | 89.23   | 87.15    | 90.63     | 4          | 3     |
 
 #### Training
 For SQuAD2.0 example, you could run `./run_squad.sh`
@@ -260,13 +261,29 @@ python run_squad_cls.py \
 
 
 #### Dev Testing
-Sample test script 
+Test for run_squad.py
 
 ```bash
 python run_squad.py \
   --name bert-base-test \
   --model_type bert \
   --model_name_or_path save/train/bert-base-test-01 \
+  --do_eval \
+  --do_lower_case \
+  --predict_file data/dev-v2.0.json \
+  --per_gpu_train_batch_size 8 \
+  --max_seq_length 384 \
+  --doc_stride 128 \
+  --version_2_with_negative
+```
+
+Test for run_squad_cls.py
+```bash
+python run_squad_cls.py \
+  --name bert-base-cls \
+  --model_type bert \
+  --model_name_or_path bert-base-uncased \
+  --eval_dir save/train/bert-base-cls-01/cur_best \
   --do_eval \
   --do_lower_case \
   --predict_file data/dev-v2.0.json \
@@ -290,6 +307,15 @@ python run_squad.py \
   --doc_stride 128 \
   --version_2_with_negative \
   --cached_features_file cached_train_bert-large-uncased-whole-word-masking_256
+```
+
+### Ensemble features
+```
+albert-xxlarge-v1
+albert-large-v2
+roberta-large
+bert-large
+Shape: train (130319, 4, 2, 256) dev (6078, 4, 2, 256)
 ```
 
 ### Original Training script

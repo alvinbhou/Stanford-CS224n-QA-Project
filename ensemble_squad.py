@@ -31,7 +31,7 @@ from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 import util
 import collections
-import pickle
+import h5py
 
 from transformers import (
     WEIGHTS_NAME,
@@ -339,7 +339,7 @@ def train(args, train_dataset, model, tokenizer):
 
 
 def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None):
-    dataset, examples, features = load_and_cache_examples(args, tokenizer, evaluate=True, output_examples=True)
+    dataset = load_and_cache_examples(args, tokenizer, evaluate=True)
 
     if not save_dir and args.local_rank in [-1, 0]:
         os.makedirs(save_dir)
@@ -366,9 +366,11 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
 
+        # We do pure voting now, not taking new inputs
+        """
         with torch.no_grad():
             inputs = {
-                "input_ids": batch[0],
+                "start_positions": batch[0],
                 "attention_mask": batch[1],
                 "token_type_ids": batch[2],
             }
@@ -388,8 +390,9 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
                     )
 
             outputs = model(**inputs)
+        """
 
-        for i, example_index in enumerate(example_indices):
+        for i, example in enumerate(batch):
             eval_feature = features[example_index.item()]
             unique_id = int(eval_feature.unique_id)
 
@@ -478,207 +481,56 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     return results
 
 
-def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save_dir=''):
-    dataset, examples, features = load_and_cache_examples(args, tokenizer, evaluate=is_dev, output_examples=True)
-    logger.info(f'REAL number of examples {len(examples)} and features {len(features)}!')
-
-    if not save_dir and args.local_rank in [-1, 0]:
-        os.makedirs(save_dir)
-
-    args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
-
-    # Note that DistributedSampler samples randomly
-    sampler = SequentialSampler(dataset)
-    dataloader = DataLoader(dataset, sampler=sampler, batch_size=args.eval_batch_size)
-
-    # multi-gpu evaluate
-    if args.n_gpu > 1 and not isinstance(model, torch.nn.DataParallel):
-        model = torch.nn.DataParallel(model)
-
-    # Output!
-    logger.info("***** Generating outputs {} *****".format(prefix))
-    logger.info("  Num examples = %d", len(dataset))
-    logger.info("  Batch size = %d", args.eval_batch_size)
-
-    # all_results = collections.defaultdict(list)
-    all_results = []
-    start_time = timeit.default_timer()
-    for batch in tqdm(dataloader, desc="Evaluating"):
-        model.eval()
-        batch = tuple(t.to(args.device) for t in batch)
-
-        with torch.no_grad():
-            inputs = {
-                "input_ids": batch[0],
-                "attention_mask": batch[1],
-                "token_type_ids": batch[2],
-            }
-
-            if args.model_type in ["xlm", "roberta", "distilbert", "camembert"]:
-                del inputs["token_type_ids"]
-
-            example_indices = batch[3]
-
-            # XLNet and XLM use more arguments for their predictions
-            if args.model_type in ["xlnet", "xlm"]:
-                inputs.update({"cls_index": batch[4], "p_mask": batch[5]})
-                # for lang_id-sensitive xlm models
-                if hasattr(model, "config") and hasattr(model.config, "lang2id"):
-                    inputs.update(
-                        {"langs": (torch.ones(batch[0].shape, dtype=torch.int64) * args.lang_id).to(args.device)}
-                    )
-
-            outputs = model(**inputs)
-
-        for i, example_index in enumerate(example_indices):
-            eval_feature = features[example_index.item()]
-            unique_id = int(eval_feature.unique_id)
-
-            output = [to_list(output[i]) for output in outputs]
-
-            # Some models (XLNet, XLM) use 5 arguments for their predictions, while the other "simpler"
-            # models only use two.
-            if len(output) >= 5:
-                start_logits = output[0]
-                start_top_index = output[1]
-                end_logits = output[2]
-                end_top_index = output[3]
-                cls_logits = output[4]
-
-                result = SquadResult(
-                    unique_id,
-                    start_logits,
-                    end_logits,
-                    start_top_index=start_top_index,
-                    end_top_index=end_top_index,
-                    cls_logits=cls_logits,
-                )
-
-            else:
-                start_logits, end_logits = output
-                result = SquadResult(unique_id, start_logits, end_logits)
-
-            all_results.append(result)
-
-    print('# of resuls in all_results:', len(all_results))
-    # Save feaures
-    with open(os.path.join(save_dir, 'features.pkl'), 'wb') as f:
-        pickle.dump(features, f)
-
-    # Save all_results
-    with open(os.path.join(save_dir, 'all_results.pkl'), 'wb') as f:
-        pickle.dump(all_results, f)
-
-    # Save tokenizer
-    with open(os.path.join(save_dir, 'tokenizer.pkl'), 'wb') as f:
-        pickle.dump(tokenizer, f)
-
-    json_to_save = {'model_name': args.name,
-                    'type': 'dev' if is_dev else 'train',
-                    'num_examples': len(examples),
-                    'num_features': len(features)}
-    util.save_json_file(os.path.join(save_dir, 'config.json'), json_to_save)
-
-
-
 def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False):
     if args.local_rank not in [-1, 0] and not evaluate:
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
         torch.distributed.barrier()
 
-    # Load data features from cache or dataset file
-    input_dir = args.data_dir if args.data_dir else "."
-    cached_features_file = ''
-    if not args.do_output:
-        cached_features_file = os.path.join(
-            input_dir,
-            "cached_{}_{}_{}".format(
-                "dev" if evaluate else "train",
-                list(filter(None, args.model_name_or_path.split("/"))).pop(),
-                str(args.max_seq_length),
-            ),
-        )
+    if not args.data_dir and ((evaluate and not args.predict_file) or (not evaluate and not args.train_file)):
+        try:
+            import tensorflow_datasets as tfds
+        except ImportError:
+            raise ImportError("If not data_dir is specified, tensorflow_datasets needs to be installed.")
+
+        if args.version_2_with_negative:
+            logger.warn("tensorflow_datasets does not handle version 2 of SQuAD.")
+        logger.warn("Something went wrong!")
+        tfds_examples = tfds.load("squad")
+        examples = SquadV1Processor().get_examples_from_dataset(tfds_examples, evaluate=evaluate)
     else:
-        cached_features_file = os.path.join(
-            input_dir,
-            "cached_output_{}_{}_{}".format(
-                "dev" if evaluate else "train",
-                list(filter(None, args.model_name_or_path.split("/"))).pop(),
-                str(args.max_seq_length),
-            ),
-        )
-
-    # Overwrite cached_features_file if args.cached_features_file is not None
-    if args.cached_features_file is not None:
-        cached_features_file = args.cached_features_file
-
-        # Init features and dataset from cache if it exists
-    if os.path.exists(cached_features_file) and not args.overwrite_cache:
-        logger.info("Loading features from cached file %s", cached_features_file)
-        features_and_dataset = torch.load(cached_features_file)
-        features, dataset, examples = (
-            features_and_dataset["features"],
-            features_and_dataset["dataset"],
-            features_and_dataset["examples"],
-        )
-    else:
-        logger.info("Creating features from dataset file at %s", input_dir)
-
-        if not args.data_dir and ((evaluate and not args.predict_file) or (not evaluate and not args.train_file)):
-            try:
-                import tensorflow_datasets as tfds
-            except ImportError:
-                raise ImportError("If not data_dir is specified, tensorflow_datasets needs to be installed.")
-
-            if args.version_2_with_negative:
-                logger.warn("tensorflow_datasets does not handle version 2 of SQuAD.")
-
-            tfds_examples = tfds.load("squad")
-            examples = SquadV1Processor().get_examples_from_dataset(tfds_examples, evaluate=evaluate)
+        processor = SquadV2Processor() if args.version_2_with_negative else SquadV1Processor()
+        if evaluate:
+            examples = processor.get_dev_examples(args.data_dir, filename=args.predict_file)
+            # Sanity check for loading the correct example
+            assert examples[0].question_text == 'In what country is Normandy located?', 'Invalid dev file!'
         else:
-            processor = SquadV2Processor() if args.version_2_with_negative else SquadV1Processor()
-            if evaluate:
-                examples = processor.get_dev_examples(args.data_dir, filename=args.predict_file)
-                # Sanity check for loading the correct example
-                assert examples[0].question_text == 'In what country is Normandy located?', 'Invalid dev file!'
-            else:
-                # Normal get train examples
-                examples = processor.get_train_examples(args.data_dir, filename=args.train_file)
-                # Sanity check for loading the correct example
-                assert examples[0].question_text == 'When did Beyonce start becoming popular?', 'Invalid train file!'
+            # Normal get train examples
+            examples = processor.get_train_examples(args.data_dir, filename=args.train_file)
+            # Sanity check for loading the correct example
+            assert examples[0].question_text == 'When did Beyonce start becoming popular?', 'Invalid train file!'
 
-        features, dataset = squad_convert_examples_to_features(
-            examples=examples,
-            tokenizer=tokenizer,
-            max_seq_length=args.max_seq_length,
-            doc_stride=args.doc_stride,
-            max_query_length=args.max_query_length,
-            is_training=not evaluate,
-            return_dataset="pt",
-            threads=args.threads,
-        )
-        if args.local_rank in [-1, 0]:
-            logger.info("Saving features into cached file %s", cached_features_file)
-            torch.save({"features": features, "dataset": dataset, "examples": examples}, cached_features_file)
+    all_start_positions = torch.tensor([e.start_position for e in examples], dtype=torch.long)
+    all_end_positions = torch.tensor([e.end_position for e in examples], dtype=torch.long)
+    all_is_impossible = torch.tensor([e.is_impossible for e in examples], dtype=torch.float)
+    if not evaluate:
+        with h5py.File(os.path.join(root_dir, 'model_output.h5'), 'r') as hf:
+            all_model_outputs = torch.tensor(hf['model_output_dev'][:], dtype=torch.float)
+    else:
+        with h5py.File(os.path.join(root_dir, 'model_output.h5'), 'r') as hf:
+            all_model_outputs = torch.tensor(hf['model_output_train'][:], dtype=torch.float)
 
-    if args.do_output and not evaluate:
-        example_indices = torch.tensor([f.example_index for f in features])
-        og_tensors = dataset.tensors
-        dataset = TensorDataset(*og_tensors, example_indices)
-        assert len(og_tensors) + 1 == len(dataset.tensors), 'Failed to add example_indices to Dataset!'
-    print(len(examples))
+    dataset = TensorDataset(all_start_positions, all_end_positions, all_is_impossible, all_model_outputs)
+
     print(len(dataset))
     # Sanity check example length with the correct numbers
     if evaluate:
-        assert len(examples) == 6078
+        assert len(dataset) == 6078
     else:
-        assert len(examples) == 130319
+        assert len(dataset) == 130319
 
     if args.local_rank == 0 and not evaluate:
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
         torch.distributed.barrier()
-    if output_examples:
-        return dataset, examples, features
     return dataset
 
 
@@ -900,8 +752,10 @@ def main():
                 tokenizer,
                 is_dev=False,
                 prefix=global_step,
-                save_dir=args.output_dir
-            )
+                save_dir=args.output_dir,
+                save_output_path=os.path.join(
+                    args.output_dir,
+                    'model_output.json'))
 
     return results
 

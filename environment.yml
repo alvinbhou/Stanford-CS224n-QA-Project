@@ -13,6 +13,8 @@ dependencies:
   - tensorboardX
   - tqdm
   - urllib3
+  - pandas
+  - matplotlib
   - pytorch::pytorch
   - pytorch::torchvision
   - pip:
