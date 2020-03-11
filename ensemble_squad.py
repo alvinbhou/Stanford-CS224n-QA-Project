@@ -547,7 +547,15 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob
     final_predictions = collections.OrderedDict()
     for qas_id in all_predictions[0].keys():
         probs = np.array([d_prob[qas_id] for d_prob in all_probs])
-        # print(probs)
+        """
+        Do weighted probs here, example"
+
+        probs[0] *= 4
+        probs[1] *= 2
+        probs[2] *= 2
+        probs[3] *= 3
+        """
+
         idx = np.argmax(probs)
         final_predictions[qas_id] = all_predictions[idx][qas_id]
 
@@ -608,8 +616,10 @@ def load_saved_examples(args, evaluate=False):
             saved_data = pickle.load(f)
     # saved_data: [features, all_results, tokenizer]
     features, all_results, tokenizer = saved_data
-
-    print(len(examples))
+    # features = features[:1] + features[2:]
+    # all_results = all_results[:1] + all_results[2:]
+    # tokenizer = tokenizer[:1] + tokenizer[2:]
+    # print(len(examples))
     # Sanity check example length with the correct numbers
     if evaluate:
         assert len(examples) == 6078
@@ -620,6 +630,101 @@ def load_saved_examples(args, evaluate=False):
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
         torch.distributed.barrier()
     return examples, features, all_results, tokenizer
+
+
+def load_combined_examples(args, evaluate=False):
+    if args.local_rank not in [-1, 0] and not evaluate:
+        # Make sure only the first process in distributed training process the dataset, and the others will use the cache
+        torch.distributed.barrier()
+
+    if not args.data_dir and ((evaluate and not args.predict_file) or (not evaluate and not args.train_file)):
+        try:
+            import tensorflow_datasets as tfds
+        except ImportError:
+            raise ImportError("If not data_dir is specified, tensorflow_datasets needs to be installed.")
+
+        if args.version_2_with_negative:
+            logger.warn("tensorflow_datasets does not handle version 2 of SQuAD.")
+        logger.warn("Something went wrong!")
+        tfds_examples = tfds.load("squad")
+        examples = SquadV1Processor().get_examples_from_dataset(tfds_examples, evaluate=evaluate)
+    else:
+        processor = SquadV2Processor() if args.version_2_with_negative else SquadV1Processor()
+        if evaluate:
+            examples = processor.get_dev_examples(args.data_dir, filename=args.predict_file)
+            # Sanity check for loading the correct example
+            assert examples[0].question_text == 'In what country is Normandy located?', 'Invalid dev file!'
+        else:
+            # Normal get train examples
+            examples = processor.get_train_examples(args.data_dir, filename=args.train_file)
+            # Sanity check for loading the correct example
+            assert examples[0].question_text == 'When did Beyonce start becoming popular?', 'Invalid train file!'
+
+    assert args.saved_processed_data_dir, 'args.saved_processed_data_dir not defined!'
+    ensemble_dir = args.saved_processed_data_dir
+
+    if evaluate:
+        with open(os.path.join(ensemble_dir, 'combined_features_dev.pkl'), 'rb') as f:
+            combined_features = pickle.load(f)
+        with open(os.path.join(ensemble_dir, 'combined_all_results_dev.pkl'), 'rb') as f:
+            combined_all_results = pickle.load(f)
+        with open(os.path.join(ensemble_dir, 'combined_tokenizers_dev.pkl'), 'rb') as f:
+            combined_tokenizers = pickle.load(f)
+    else:
+        with open(os.path.join(ensemble_dir, 'combined_features_train.pkl'), 'rb') as f:
+            combined_features = pickle.load(f)
+        with open(os.path.join(ensemble_dir, 'combined_all_results_train.pkl'), 'rb') as f:
+            combined_all_results = pickle.load(f)
+        with open(os.path.join(ensemble_dir, 'combined_tokenizers_train.pkl'), 'rb') as f:
+            combined_tokenizers = pickle.load(f)
+
+    # Convert to Tensors and build dataset
+    all_input_ids = []
+    all_example_indices = []
+    all_predict_start_logits = []
+    all_predict_end_logits = []
+    for features in combined_features:
+        all_input_ids.append(torch.tensor([f.input_ids for f in features], dtype=torch.long))
+    for all_results in combined_all_results:
+        all_predict_start_logits.append(torch.tensor([s.start_logits for s in all_results], dtype=torch.float))
+        all_predict_end_logits.append(torch.tensor([s.end_logits for s in all_results], dtype=torch.float))
+
+    if evaluate:
+        for all_input_id in all_input_ids:
+            all_example_indices.append(torch.arange(all_input_id.size(0), dtype=torch.long))
+            all_example_indices = torch.stack(all_example_indices).transpose(1, 0)
+
+    all_input_ids = torch.stack(all_input_ids).permute(1, 0, 2)
+    all_predict_start_logits = torch.stack(all_predict_start_logits).permute(1, 0, 2)
+    all_predict_end_logits = torch.stack(all_predict_end_logits).permute(1, 0, 2)
+
+    print(all_input_ids.shape, all_predict_start_logits.shape, all_predict_end_logits.shape)
+
+    if evaluate:
+        dataset = TensorDataset(
+            all_example_indices, all_predict_start_logits, all_predict_end_logits
+        )
+    else:
+        all_start_positions = []
+        all_end_positions = []
+        for features in combined_features:
+            all_start_positions.append(torch.tensor([f.start_position for f in features], dtype=torch.long))
+            all_end_positions.append(torch.tensor([f.end_position for f in features], dtype=torch.long))
+        all_start_positions = torch.stack(all_start_positions).transpose(1, 0)
+        all_end_positions = torch.stack(all_end_positions).transpose(1, 0)
+        dataset = TensorDataset(
+            all_predict_start_logits, all_predict_end_logits, all_start_positions, all_end_positions
+        )
+    print(torch.all(torch.eq(all_start_positions[0], all_start_positions[1])))
+    if evaluate:
+        assert len(examples) == 6078
+    else:
+        assert len(examples) == 130319
+
+    if args.local_rank == 0 and not evaluate:
+        # Make sure only the first process in distributed training process the dataset, and the others will use the cache
+        torch.distributed.barrier()
+    return examples, combined_features, dataset, combined_tokenizers
 
 
 def main():
@@ -728,10 +833,10 @@ def main():
             apex.amp.register_half_function(torch, "einsum")
         except ImportError:
             raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
-    """
+
     # Training
     if args.do_train:
-        train_dataset = load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False)
+        examples, combined_features, dataset, combined_tokenizers = load_combined_examples(args, evaluate=False)
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
@@ -799,13 +904,13 @@ def main():
             util.convert_submission_format_and_save(args.output_dir, prediction_file_path=os.path.join(args.output_dir, 'predictions_.json'))
 
     logger.info("Results: {}".format(results))
-    """
 
     # Generate ensemble output
     if args.do_output and args.local_rank in [-1, 0]:
-        results = ensemble_vote(args, save_dir=args.save_dir, predict_prob_mode='multiply')
+        results = ensemble_vote(args, save_dir=args.save_dir, predict_prob_mode='add')
 
     return results
+    # load_combined_examples(args, evaluate=False)
 
 
 if __name__ == "__main__":
