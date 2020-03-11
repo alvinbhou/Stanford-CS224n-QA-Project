@@ -897,7 +897,7 @@ def main():
                 args,
                 model,
                 tokenizer,
-                is_dev=False,
+                is_dev=True,
                 prefix=global_step,
                 save_dir=args.output_dir
             )

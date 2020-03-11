@@ -14,11 +14,16 @@ import logging
 import math
 import re
 import string
+import numpy as np
 
 from transformers.tokenization_bert import BasicTokenizer
 
 
 logger = logging.getLogger(__name__)
+
+
+def softmax(x):
+    return np.exp(x) / np.sum(np.exp(x))
 
 
 def normalize_answer(s):
@@ -358,7 +363,7 @@ def _compute_softmax(scores):
     exp_scores = []
     total_sum = 0.0
     for score in scores:
-        x = math.exp(score - max_score)
+        x = np.exp(score - max_score)
         exp_scores.append(x)
         total_sum += x
 
@@ -382,6 +387,7 @@ def compute_predictions_logits(
     version_2_with_negative,
     null_score_diff_threshold,
     tokenizer,
+    prob_mode='add'
 ):
     """Write final predictions to the json file and log-odds of null if needed."""
     logger.info("Writing predictions to: %s" % (output_prediction_file))
@@ -396,7 +402,7 @@ def compute_predictions_logits(
         unique_id_to_result[result.unique_id] = result
 
     _PrelimPrediction = collections.namedtuple(  # pylint: disable=invalid-name
-        "PrelimPrediction", ["feature_index", "start_index", "end_index", "start_logit", "end_logit"]
+        "PrelimPrediction", ["feature_index", "start_index", "end_index", "start_logit", "end_logit", "start_prob", "end_prob"]
     )
 
     all_predictions = collections.OrderedDict()
@@ -452,6 +458,8 @@ def compute_predictions_logits(
                             end_index=end_index,
                             start_logit=result.start_logits[start_index],
                             end_logit=result.end_logits[end_index],
+                            start_prob=-1,
+                            end_prob=-1
                         )
                     )
         if version_2_with_negative:
@@ -462,12 +470,25 @@ def compute_predictions_logits(
                     end_index=0,
                     start_logit=null_start_logit,
                     end_logit=null_end_logit,
+                    start_prob=0,
+                    end_prob=0
                 )
             )
-        prelim_predictions = sorted(prelim_predictions, key=lambda x: (x.start_logit + x.end_logit), reverse=True)
 
+        start_probs = softmax(np.array([x.start_logit for x in prelim_predictions]))
+        end_probs = softmax(np.array([x.end_logit for x in prelim_predictions]))
+
+        for i, x in enumerate(prelim_predictions):
+            prelim_predictions[i] = prelim_predictions[i]._replace(start_prob=start_probs[i])
+            prelim_predictions[i] = prelim_predictions[i]._replace(end_prob=end_probs[i])
+        # print([x.start_prob for x in prelim_predictions])
+        # print([x.end_prob for x in prelim_predictions])
+        if prob_mode == 'add':
+            prelim_predictions = sorted(prelim_predictions, key=lambda x: (x.start_logit + x.end_logit), reverse=True)
+        elif prob_mode == 'multiply':
+            prelim_predictions = sorted(prelim_predictions, key=lambda x: (np.log(x.start_prob) + np.log(x.end_prob)), reverse=True)
         _NbestPrediction = collections.namedtuple(  # pylint: disable=invalid-name
-            "NbestPrediction", ["text", "start_logit", "end_logit"]
+            "NbestPrediction", ["text", "start_logit", "end_logit", "start_prob", "end_prob"]
         )
 
         seen_predictions = {}
@@ -504,11 +525,17 @@ def compute_predictions_logits(
                 final_text = ""
                 seen_predictions[final_text] = True
 
-            nbest.append(_NbestPrediction(text=final_text, start_logit=pred.start_logit, end_logit=pred.end_logit))
+            nbest.append(
+                _NbestPrediction(
+                    text=final_text,
+                    start_logit=pred.start_logit,
+                    end_logit=pred.end_logit,
+                    start_prob=pred.start_prob,
+                    end_prob=pred.end_prob))
         # if we didn't include the empty option in the n-best, include it
         if version_2_with_negative:
             if "" not in seen_predictions:
-                nbest.append(_NbestPrediction(text="", start_logit=null_start_logit, end_logit=null_end_logit))
+                nbest.append(_NbestPrediction(text="", start_logit=null_start_logit, end_logit=null_end_logit, start_prob=0.0, end_prob=0.0))
 
             # In very rare edge cases we could only have single null prediction.
             # So we just create a nonce prediction in this case to avoid failure.
@@ -518,7 +545,7 @@ def compute_predictions_logits(
         # In very rare edge cases we could have no valid predictions. So we
         # just create a nonce prediction in this case to avoid failure.
         if not nbest:
-            nbest.append(_NbestPrediction(text="empty", start_logit=0.0, end_logit=0.0))
+            nbest.append(_NbestPrediction(text="empty", start_logit=0.0, end_logit=0.0, start_prob=0.0, end_prob=0.0))
 
         assert len(nbest) >= 1
 
@@ -527,7 +554,10 @@ def compute_predictions_logits(
         best_non_null_index = None
         best_null_index = None
         for idx, entry in enumerate(nbest):
-            total_scores.append(entry.start_logit + entry.end_logit)
+            if prob_mode == 'add':
+                total_scores.append(entry.start_logit + entry.end_logit)
+            elif prob_mode == 'multiply':
+                total_scores.append(np.log(entry.start_prob) + np.log(entry.end_prob))
             if not best_non_null_entry:
                 if entry.text:
                     best_non_null_entry = entry
@@ -537,12 +567,13 @@ def compute_predictions_logits(
                     best_null_index = idx
 
         probs = _compute_softmax(total_scores)
-
+        # print(total_scores)
         # Get probs for best null and non-null entry
         assert best_non_null_index is not None, printf('best_non_null_index null')
         assert best_null_index is not None, printf('best_null_index null')
         best_prob_non_null = probs[best_non_null_index]
         best_prob_null = probs[best_null_index]
+        # print(best_prob_non_null, total_scores)
 
         nbest_json = []
         for (i, entry) in enumerate(nbest):
