@@ -20,6 +20,14 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 | ALBERT-large-v2 | 81.16    | 84.22   | 83.24    | 85.29     | 6          | 2      |
 |ALBERT-xxlarge-v1| 86.23    | 89.23   | 87.15    | 90.63     | 4          | 3     |
 
+
+### Benchmarks For CLS Model
+| Model           | EM       | F1      | NoAns_f1 | HasAns_f1 | batch_size | epochs |
+| --------------- | -------- | ------- | -------- | --------- | ---------- |--------|
+| Roberta-base    | 79.04    | 82.24   | 82.17    | 82.33     | 8          | 2      |
+| ALBERT-base-v2  | 78.91    | 82.14   | 81.91    | 82.38     | 8          | 2      |
+
+
 #### Training
 For SQuAD2.0 example, you could run `./run_squad.sh`
 
