@@ -318,7 +318,30 @@ python run_squad.py \
   --per_gpu_eval_batch_size 128
 ```
 
-#### Run ensemble
+### Run ensemble weighted train
+```bash
+python ensemble_squad.py \
+ --name ensemble-test \
+  --model_type placeholder \
+  --model_name_or_path placeholder \
+  --do_train \
+   --do_eval \
+  --do_lower_case \
+  --train_file data/train-v2.0.json \
+  --per_gpu_train_batch_size 512 \
+  --num_train_epochs 1000 \
+  --max_seq_length 256 \
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --predict_file data/dev-v2.0.json \
+  --saved_processed_data_dir output/saved_data_6 \
+  --logging_steps 1 \
+  --save_steps 2 \
+  --evaluate_during_saving  \
+  --save_best_only 
+```
+
+#### Run ensemble voting
 
 ```bash
 python ensemble_squad.py \
