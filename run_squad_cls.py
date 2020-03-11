@@ -32,7 +32,7 @@ from tqdm import tqdm, trange
 import util
 import collections
 
-from models.bert import BertQA, RobertaQA
+from models.bert import BertQA
 
 from transformers import (
     WEIGHTS_NAME,
@@ -732,10 +732,7 @@ def main():
 
     # TODO
     # Test BERT-base model only for now
-    if args.model_type == 'bert':
-        model = BertQA(model_type=args.model_name_or_path, do_cls=True)
-    else:
-        model = RobertaQA(model_type=args.model_name_or_path, do_cls=True)
+    model = BertQA(config_class, model_class, model_type=args.model_name_or_path, do_cls=True)
 
     if args.local_rank == 0:
         # Make sure only the first process in distributed training will download model & vocab
