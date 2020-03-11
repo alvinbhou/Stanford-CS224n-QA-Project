@@ -325,7 +325,8 @@ python ensemble_squad.py \
   --doc_stride 128 \
   --version_2_with_negative \
   --predict_file data/dev-v2.0.json \
-  --saved_processed_data_dir save/output
+  --saved_processed_data_dir output/only_dev_1
+
 ```
 
 
