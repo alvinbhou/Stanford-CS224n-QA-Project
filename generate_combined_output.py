@@ -61,6 +61,10 @@ def generate(only_dev=True):
     with open(os.path.join(root_dir, 'saved_data_dev.pkl'), 'wb') as f:
         pickle.dump(dev_to_save, f)
 
+    if not only_dev:
+        with open(os.path.join(root_dir, 'saved_data_train.pkl'), 'wb') as f:
+            pickle.dump([features_train, all_results_train, tokenizers_train], f)
+
 
 if __name__ == "__main__":
     generate(only_dev=True)
