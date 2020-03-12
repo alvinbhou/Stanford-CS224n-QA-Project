@@ -499,8 +499,8 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob
     final_predictions = collections.OrderedDict()
 
     # Grid Search
-    grid_search_results = {}
-    grid_search_predictions = {}
+    grid_search_results = collections.OrderedDict()
+    grid_search_predictions = collections.OrderedDict()
     for weights in product(np.arange(6), repeat=len(all_probs)):
         if weights == (0, 0, 0, 0, 0):
             continue
@@ -532,14 +532,20 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob
         final_results = squad_evaluate(examples, final_predictions)
         logger.info(final_results)
 
-        grid_search_results[weights] = final_results
-        grid_search_predictions[weights] = final_predictions
+        if len(grid_search_results) == 0:
+            grid_search_results = final_results
+            grid_search_predictions = final_predictions
+        else:
+            if grid_search_results['exact'] + grid_search_results['f1'] < final_results['exact'] + final_results['f1']:
+                cur_best = final_results['exact'] + final_results['f1']
+                grid_search_results = final_results
+                grid_search_predictions = final_predictions
     # save log to file
     util.save_json_file(os.path.join(save_dir, 'eval_results.json'), grid_search_results)
 
     # save prediction to file
     #TODO save grid search best
-    util.save_json_file(os.path.join(save_dir, 'predictions_.json'), final_predictions)
+    util.save_json_file(os.path.join(save_dir, 'predictions_.json'), grid_search_predictions)
     util.convert_submission_format_and_save(
         save_dir, prediction_file_path=os.path.join(
             save_dir, 'predictions_.json'))
