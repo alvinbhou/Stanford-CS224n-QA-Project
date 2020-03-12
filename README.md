@@ -329,16 +329,17 @@ python ensemble_squad.py \
   --do_lower_case \
   --train_file data/train-v2.0.json \
   --per_gpu_train_batch_size 512 \
-  --num_train_epochs 1000 \
+  --num_train_epochs 100000 \
   --max_seq_length 256 \
   --doc_stride 128 \
   --version_2_with_negative \
   --predict_file data/dev-v2.0.json \
   --saved_processed_data_dir output/saved_data_6 \
   --logging_steps 1 \
-  --save_steps 2 \
+  --save_steps 200 \
   --evaluate_during_saving  \
-  --save_best_only 
+  --save_best_only \
+  --learning_rate 5e-5
 ```
 
 #### Run ensemble voting

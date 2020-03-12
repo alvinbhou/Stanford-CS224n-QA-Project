@@ -16,7 +16,7 @@ class EnsembleQA(nn.Module):
     def __init__(self, n_models, device):
         super(EnsembleQA, self).__init__()
         self.n_models = n_models
-        self.weights = nn.Parameter(torch.FloatTensor([1.0] * n_models)).to(device)
+        self.weights = nn.Parameter(torch.ones(n_models))
 
     def forward(self, predict_start_logits, predict_end_logits, start_positions=None, end_positions=None):
 

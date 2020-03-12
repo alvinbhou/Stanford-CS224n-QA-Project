@@ -696,10 +696,6 @@ def main():
         torch.distributed.init_process_group(backend="nccl")
         args.n_gpu = 1
     args.device = device
-    model = EnsembleQA(3, args.device)
-    # model.to(args.device)
-    print('Model params!')
-    print(list(model.parameters()))
 
     logger.warning(
         "Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
@@ -736,6 +732,7 @@ def main():
         # model.to(args.device)
         print('Model params!')
         print(list(model.parameters()))
+        model = model.to(args.device)
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
