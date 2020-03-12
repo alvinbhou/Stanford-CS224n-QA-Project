@@ -26,11 +26,12 @@ import json
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 import util
 import collections
+import pickle
 
 from models.bert import BertQA
 
@@ -347,7 +348,7 @@ def train(args, train_dataset, model, tokenizer):
                         model_to_save = model.module if hasattr(model, "module") else model
                         # model_to_save.save_pretrained(output_dir)  # BertQA is not a PreTrainedModel class
 
-                        torch.save(model_to_save, os.path.join(output_dir, 'custom_model.pt'))  # save entire model
+                        torch.save(model_to_save, os.path.join(output_dir, 'pytorch_model.bin'))  # save entire model
                         tokenizer.save_pretrained(output_dir)
 
                         torch.save(args, os.path.join(output_dir, "training_args.bin"))
@@ -559,6 +560,108 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     return results
 
 
+def generate_model_outputs(args, model, tokenizer, is_dev=False, prefix='', save_dir=''):
+    dataset, examples, features = load_and_cache_examples(args, tokenizer, evaluate=is_dev, output_examples=True)
+    logger.info(f'REAL number of examples {len(examples)} and features {len(features)}!')
+
+    if not save_dir and args.local_rank in [-1, 0]:
+        os.makedirs(save_dir)
+
+    args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
+
+    # Note that DistributedSampler samples randomly
+    sampler = SequentialSampler(dataset)
+    dataloader = DataLoader(dataset, sampler=sampler, batch_size=args.eval_batch_size)
+
+    # multi-gpu evaluate
+    if args.n_gpu > 1 and not isinstance(model, torch.nn.DataParallel):
+        model = torch.nn.DataParallel(model)
+
+    # Output!
+    logger.info("***** Generating outputs {} *****".format(prefix))
+    logger.info("  Num examples = %d", len(dataset))
+    logger.info("  Batch size = %d", args.eval_batch_size)
+
+    # all_results = collections.defaultdict(list)
+    all_results = []
+    for batch in tqdm(dataloader, desc="Evaluating"):
+        model.eval()
+        batch = tuple(t.to(args.device) for t in batch)
+
+        with torch.no_grad():
+            inputs = {
+                "input_ids": batch[0],
+                "attention_mask": batch[1],
+                "token_type_ids": batch[2],
+            }
+
+            if args.model_type in ["xlm", "roberta", "distilbert", "camembert"]:
+                del inputs["token_type_ids"]
+
+            example_indices = batch[3]
+
+            # XLNet and XLM use more arguments for their predictions
+            if args.model_type in ["xlnet", "xlm"]:
+                inputs.update({"cls_index": batch[4], "p_mask": batch[5]})
+                # for lang_id-sensitive xlm models
+                if hasattr(model, "config") and hasattr(model.config, "lang2id"):
+                    inputs.update(
+                        {"langs": (torch.ones(batch[0].shape, dtype=torch.int64) * args.lang_id).to(args.device)}
+                    )
+
+            outputs = model(**inputs)
+
+        for i, example_index in enumerate(example_indices):
+            eval_feature = features[example_index.item()]
+            unique_id = int(eval_feature.unique_id)
+
+            output = [to_list(output[i]) for output in outputs]
+
+            # Some models (XLNet, XLM) use 5 arguments for their predictions, while the other "simpler"
+            # models only use two.
+            if len(output) >= 5:
+                start_logits = output[0]
+                start_top_index = output[1]
+                end_logits = output[2]
+                end_top_index = output[3]
+                cls_logits = output[4]
+
+                result = SquadResult(
+                    unique_id,
+                    start_logits,
+                    end_logits,
+                    start_top_index=start_top_index,
+                    end_top_index=end_top_index,
+                    cls_logits=cls_logits,
+                )
+
+            else:
+                start_logits, end_logits, _ = output
+                result = SquadResult(unique_id, start_logits, end_logits)
+
+            all_results.append(result)
+
+    print('# of resuls in all_results:', len(all_results))
+    # Save feaures
+    with open(os.path.join(save_dir, 'features.pkl'), 'wb') as f:
+        pickle.dump(features, f)
+
+    # Save all_results
+    with open(os.path.join(save_dir, 'all_results.pkl'), 'wb') as f:
+        pickle.dump(all_results, f)
+
+    # Save tokenizer
+    with open(os.path.join(save_dir, 'tokenizer.pkl'), 'wb') as f:
+        pickle.dump(tokenizer, f)
+
+    json_to_save = {'model_name': args.name,
+                    'type': 'dev' if is_dev else 'train',
+                    'num_examples': len(examples),
+                    'num_features': len(features)}
+    util.save_json_file(os.path.join(save_dir, 'config.json'), json_to_save)
+
+
+
 def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False):
     if args.local_rank not in [-1, 0] and not evaluate:
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
@@ -621,6 +724,14 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
         if args.local_rank in [-1, 0]:
             logger.info("Saving features into cached file %s", cached_features_file)
             torch.save({"features": features, "dataset": dataset, "examples": examples}, cached_features_file)
+
+    if args.do_output and not evaluate:
+        example_indices = torch.tensor([f.example_index for f in features])
+        og_tensors = dataset.tensors
+        dataset = TensorDataset(*og_tensors, example_indices)
+        assert len(og_tensors) + 1 == len(dataset.tensors), 'Failed to add example_indices to Dataset!'
+    print(len(examples))
+    print(len(dataset))
 
     if args.local_rank == 0 and not evaluate:
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
@@ -729,9 +840,8 @@ def main():
     #     config=config,
     #     cache_dir=args.cache_dir if args.cache_dir else None,
     # )
+    #
 
-    # TODO
-    # Test BERT-base model only for now
     model = BertQA(config_class, model_class, model_type=args.model_name_or_path, do_cls=True)
 
     if args.local_rank == 0:
@@ -828,6 +938,28 @@ def main():
 
     logger.info("Results: {}".format(results))
 
+    if args.do_output and args.local_rank in [-1, 0]:
+        assert not args.do_train and not args.do_eval
+
+        logger.info("Loading checkpoint %s for output", args.model_name_or_path)
+        checkpoints = [args.eval_dir]
+
+        logger.info("Output the following checkpoints: %s", checkpoints)
+
+        for checkpoint in checkpoints:
+            # Reload the model
+            global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
+            model = torch.load(os.path.join(checkpoint, 'pytorch_model.bin'))
+            model.to(args.device)
+
+            generate_model_outputs(
+                args,
+                model,
+                tokenizer,
+                is_dev=True,
+                prefix=global_step,
+                save_dir=args.output_dir
+            )
     return results
 
 

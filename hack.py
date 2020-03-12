@@ -569,8 +569,8 @@ def compute_predictions_logits(
         probs = _compute_softmax(total_scores)
         # print(total_scores)
         # Get probs for best null and non-null entry
-        assert best_non_null_index is not None, printf('best_non_null_index null')
-        assert best_null_index is not None, printf('best_null_index null')
+        assert best_non_null_index is not None, print('best_non_null_index null')
+        assert best_null_index is not None, print('best_null_index null')
         best_prob_non_null = probs[best_non_null_index]
         best_prob_null = probs[best_null_index]
         # print(best_prob_non_null, total_scores)

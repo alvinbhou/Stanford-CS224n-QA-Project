@@ -33,6 +33,7 @@ import util
 import collections
 import pickle
 import hack
+from itertools import product
 
 from transformers import (
     WEIGHTS_NAME,
@@ -545,37 +546,50 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob
     logger.info(f'Number of predicions {num_of_predicions}')
 
     final_predictions = collections.OrderedDict()
-    for qas_id in all_predictions[0].keys():
-        probs = np.array([d_prob[qas_id] for d_prob in all_probs])
+
+    # Grid Search
+    grid_search_results = {}
+    grid_search_predictions = {}
+    for weights in product(np.arange(6), repeat=len(all_probs)):
+        if weights == (0, 0, 0, 0, 0):
+            continue
+        for qas_id in all_predictions[0].keys():
+            probs = np.array([d_prob[qas_id] for d_prob in all_probs])
+            for i, w in enumerate(weights):
+                probs[i] *= w
+            """
+            Do weighted probs here, example"
+    
+            probs[0] *= 4
+            probs[1] *= 2
+            probs[2] *= 2
+            probs[3] *= 3
+            """
+
+            idx = np.argmax(probs)
+            final_predictions[qas_id] = all_predictions[idx][qas_id]
+
         """
-        Do weighted probs here, example"
-
-        probs[0] *= 4
-        probs[1] *= 2
-        probs[2] *= 2
-        probs[3] *= 3
+        logger.info('Model individual results')
+        for i in range(len(tokenizers)):
+            results = squad_evaluate(examples, all_predictions[i])
+            logger.info(results)
         """
+        # Compute the F1 and exact scores.
+        logger.info(f'Weights: {weights}')
+        logger.info('Ensemble results')
+        final_results = squad_evaluate(examples, final_predictions)
+        logger.info(final_results)
 
-        idx = np.argmax(probs)
-        final_predictions[qas_id] = all_predictions[idx][qas_id]
-
-    logger.info('Model individual results')
-    for i in range(len(tokenizers)):
-        results = squad_evaluate(examples, all_predictions[i])
-        logger.info(results)
-
-    # Compute the F1 and exact scores.
-    logger.info('Ensemble results')
-    final_results = squad_evaluate(examples, final_predictions)
-    logger.info(final_results)
-
+        grid_search_results[weights] = final_results
+        grid_search_predictions[weights] = final_predictions
     # save log to file
-    util.save_json_file(os.path.join(save_dir, 'eval_results.json'), final_results)
+    util.save_json_file(os.path.join(save_dir, 'eval_results.json'), grid_search_results)
 
     # save prediction to file
-    util.save_json_file(os.path.join(save_dir, 'predictions.json'), final_predictions)
+    util.save_json_file(os.path.join(save_dir, 'predictions.json'), grid_search_predictions)
 
-    return results
+    return grid_search_results
 
 
 def load_saved_examples(args, evaluate=False):
@@ -608,6 +622,7 @@ def load_saved_examples(args, evaluate=False):
     assert args.saved_processed_data_dir, 'args.saved_processed_data_dir not defined!'
     ensemble_dir = args.saved_processed_data_dir
 
+    print(args.saved_processed_data_dir)
     if evaluate:
         with open(os.path.join(ensemble_dir, 'saved_data_dev.pkl'), 'rb') as f:
             saved_data = pickle.load(f)
