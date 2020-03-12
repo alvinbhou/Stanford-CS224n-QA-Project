@@ -34,6 +34,7 @@ import collections
 import pickle
 import hack
 from itertools import product
+from models.ensemble import EnsembleQA, EnsembleStackQA
 
 from transformers import (
     WEIGHTS_NAME,
@@ -217,29 +218,16 @@ def train(args, train_dataset, model, tokenizer):
             batch = tuple(t.to(args.device) for t in batch)
 
             inputs = {
-                "input_ids": batch[0],
-                "attention_mask": batch[1],
-                "token_type_ids": batch[2],
-                "start_positions": batch[3],
-                "end_positions": batch[4],
+                "predict_start_logits": batch[0],
+                "predict_end_logits": batch[1],
+                "start_positions": batch[2],
+                "end_positions": batch[3],
             }
-
-            if args.model_type in ["xlm", "roberta", "distilbert", "camembert"]:
-                del inputs["token_type_ids"]
-
-            if args.model_type in ["xlnet", "xlm"]:
-                inputs.update({"cls_index": batch[5], "p_mask": batch[6]})
-                if args.version_2_with_negative:
-                    inputs.update({"is_impossible": batch[7]})
-                if hasattr(model, "config") and hasattr(model.config, "lang2id"):
-                    inputs.update(
-                        {"langs": (torch.ones(batch[0].shape, dtype=torch.int64) * args.lang_id).to(args.device)}
-                    )
 
             outputs = model(**inputs)
             # model outputs are always tuple in transformers (see doc)
             loss = outputs[0]
-
+            # print(f'loss at step: {global_step} loss {loss}')
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel (not distributed) training
             if args.gradient_accumulation_steps > 1:
@@ -250,6 +238,7 @@ def train(args, train_dataset, model, tokenizer):
                     scaled_loss.backward()
             else:
                 loss.backward()
+                # logger.info(f"Weights at: {model.weights}")
 
             tr_loss += loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -275,12 +264,18 @@ def train(args, train_dataset, model, tokenizer):
                         output_path = os.path.join(output_dir, 'eval_result.json')
 
                         # Get eval results and save the log to output path
-                        eval_results = evaluate(args, model, tokenizer, save_dir=output_dir, save_log_path=output_path)
+                        eval_results, all_predictions = evaluate(args, model, tokenizer, save_dir=output_dir, save_log_path=output_path)
                         for key, value in eval_results.items():
                             tb_writer.add_scalar("eval_{}".format(key), value, global_step)
 
+                        util.save_json_file(os.path.join(output_dir, 'predictions_.json'), all_predictions)
+                        util.convert_submission_format_and_save(
+                            output_dir, prediction_file_path=os.path.join(
+                                output_dir, 'predictions_.json'))
+
                         # log eval result
                         logger.info(f"Evaluation result at {global_step} step: {eval_results}")
+                        # logger.info(f"Weights at {model.weights}")
                     tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
                     tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                     logging_loss = tr_loss
@@ -297,24 +292,27 @@ def train(args, train_dataset, model, tokenizer):
                     # Get eval results and save the log to output path
                     if args.local_rank in [-1, 0] and args.evaluate_during_saving:
                         output_path = os.path.join(output_dir, 'eval_result.json')
-                        eval_results = evaluate(args, model, tokenizer, save_dir=output_dir, save_log_path=None)
+                        eval_results, all_predictions = evaluate(args, model, tokenizer, save_dir=output_dir, save_log_path=None)
                         for key, value in eval_results.items():
                             tb_writer.add_scalar("eval_{}".format(key), value, global_step)
                         # log eval result
                         logger.info(f"Evaluation result at {global_step} step: {eval_results}")
+                        # logger.info(f"Weights at {model.weights}")
                         # save current result at args.output_dir
                         if os.path.exists(os.path.join(args.output_dir, "eval_result.json")):
                             util.read_and_update_json_file(os.path.join(args.output_dir, "eval_result.json"), {global_step: eval_results})
                         else:
                             util.save_json_file(os.path.join(args.output_dir, "eval_result.json"), {global_step: eval_results})
 
-                    # Save cur best model only
+                     # Save cur best model only
                     # Take care of distributed/parallel training
                     if (eval_results and cur_best_f1 < eval_results['f1']) or not args.save_best_only:
                         if eval_results and cur_best_f1 < eval_results['f1']:
                             cur_best_f1 = eval_results['f1']
                         model_to_save = model.module if hasattr(model, "module") else model
-                        model_to_save.save_pretrained(output_dir)
+                        # model_to_save.save_pretrained(output_dir)  # BertQA is not a PreTrainedModel class
+
+                        torch.save(model_to_save, os.path.join(output_dir, 'pytorch_model.bin'))  # save entire model
                         tokenizer.save_pretrained(output_dir)
 
                         torch.save(args, os.path.join(output_dir, "training_args.bin"))
@@ -324,6 +322,10 @@ def train(args, train_dataset, model, tokenizer):
                         torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
                         logger.info("Saving optimizer and scheduler states to %s", output_dir)
 
+                        util.save_json_file(os.path.join(output_dir, 'predictions_.json'), all_predictions)
+                        util.convert_submission_format_and_save(
+                            output_dir, prediction_file_path=os.path.join(
+                                output_dir, 'predictions_.json'))
                         if args.save_best_only:
                             util.save_json_file(os.path.join(output_dir, "eval_result.json"), {global_step: eval_results})
 
@@ -340,8 +342,8 @@ def train(args, train_dataset, model, tokenizer):
     return global_step, tr_loss / global_step
 
 
-def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None):
-    dataset = load_and_cache_examples(args, tokenizer, evaluate=True)
+def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None, return_predicts=True):
+    examples, features, dataset, tokenizer, n_models = load_combined_examples(args, evaluate=True)
 
     if not save_dir and args.local_rank in [-1, 0]:
         os.makedirs(save_dir)
@@ -368,55 +370,22 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
 
-        # We do pure voting now, not taking new inputs
-        """
         with torch.no_grad():
             inputs = {
-                "start_positions": batch[0],
-                "attention_mask": batch[1],
-                "token_type_ids": batch[2],
+                "predict_start_logits": batch[0],
+                "predict_end_logits": batch[1],
             }
-            if args.model_type in ["xlm", "roberta", "distilbert", "camembert"]:
-                del inputs["token_type_ids"]
-            example_indices = batch[3]
-            # XLNet and XLM use more arguments for their predictions
-            if args.model_type in ["xlnet", "xlm"]:
-                inputs.update({"cls_index": batch[4], "p_mask": batch[5]})
-                # for lang_id-sensitive xlm models
-                if hasattr(model, "config") and hasattr(model.config, "lang2id"):
-                    inputs.update(
-                        {"langs": (torch.ones(batch[0].shape, dtype=torch.int64) * args.lang_id).to(args.device)}
-                    )
+            example_indices = batch[2]
             outputs = model(**inputs)
-        """
 
-        for i, example in enumerate(batch):
+        for i, example_index in enumerate(example_indices):
             eval_feature = features[example_index.item()]
             unique_id = int(eval_feature.unique_id)
+            is_impossible = eval_feature.is_impossible
 
             output = [to_list(output[i]) for output in outputs]
-
-            # Some models (XLNet, XLM) use 5 arguments for their predictions, while the other "simpler"
-            # models only use two.
-            if len(output) >= 5:
-                start_logits = output[0]
-                start_top_index = output[1]
-                end_logits = output[2]
-                end_top_index = output[3]
-                cls_logits = output[4]
-
-                result = SquadResult(
-                    unique_id,
-                    start_logits,
-                    end_logits,
-                    start_top_index=start_top_index,
-                    end_top_index=end_top_index,
-                    cls_logits=cls_logits,
-                )
-
-            else:
-                start_logits, end_logits = output
-                result = SquadResult(unique_id, start_logits, end_logits)
+            start_logits, end_logits = output
+            result = SquadResult(unique_id, start_logits, end_logits)
 
             all_results.append(result)
 
@@ -432,42 +401,22 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     else:
         output_null_log_odds_file = None
 
-    # XLNet and XLM use a more complex post-processing procedure
-    if args.model_type in ["xlnet", "xlm"]:
-        start_n_top = model.config.start_n_top if hasattr(model, "config") else model.module.config.start_n_top
-        end_n_top = model.config.end_n_top if hasattr(model, "config") else model.module.config.end_n_top
-
-        predictions = compute_predictions_log_probs(
-            examples,
-            features,
-            all_results,
-            args.n_best_size,
-            args.max_answer_length,
-            output_prediction_file,
-            output_nbest_file,
-            output_null_log_odds_file,
-            start_n_top,
-            end_n_top,
-            args.version_2_with_negative,
-            tokenizer,
-            args.verbose_logging,
-        )
-    else:
-        predictions = compute_predictions_logits(
-            examples,
-            features,
-            all_results,
-            args.n_best_size,
-            args.max_answer_length,
-            args.do_lower_case,
-            output_prediction_file,
-            output_nbest_file,
-            output_null_log_odds_file,
-            args.verbose_logging,
-            args.version_2_with_negative,
-            args.null_score_diff_threshold,
-            tokenizer,
-        )
+    predictions, probs = hack.compute_predictions_logits(
+        examples,
+        features,
+        all_results,
+        args.n_best_size,
+        args.max_answer_length,
+        args.do_lower_case,
+        output_prediction_file,
+        output_nbest_file,
+        output_null_log_odds_file,
+        args.verbose_logging,
+        args.version_2_with_negative,
+        args.null_score_diff_threshold,
+        tokenizer,
+        prob_mode='add'
+    )
 
     # Compute the F1 and exact scores.
     results = squad_evaluate(examples, predictions)
@@ -476,6 +425,8 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
     if save_log_path:
         util.save_json_file(save_log_path, results)
 
+    if return_predicts:
+        return results, predictions
     return results
 
 
@@ -587,7 +538,11 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob
     util.save_json_file(os.path.join(save_dir, 'eval_results.json'), grid_search_results)
 
     # save prediction to file
-    util.save_json_file(os.path.join(save_dir, 'predictions.json'), grid_search_predictions)
+    #TODO save grid search best
+    util.save_json_file(os.path.join(save_dir, 'predictions_.json'), final_predictions)
+    util.convert_submission_format_and_save(
+        save_dir, prediction_file_path=os.path.join(
+            save_dir, 'predictions_.json'))
 
     return grid_search_results
 
@@ -631,11 +586,7 @@ def load_saved_examples(args, evaluate=False):
             saved_data = pickle.load(f)
     # saved_data: [features, all_results, tokenizer]
     features, all_results, tokenizer = saved_data
-    # features = features[:1] + features[2:]
-    # all_results = all_results[:1] + all_results[2:]
-    # tokenizer = tokenizer[:1] + tokenizer[2:]
-    # print(len(examples))
-    # Sanity check example length with the correct numbers
+
     if evaluate:
         assert len(examples) == 6078
     else:
@@ -648,6 +599,9 @@ def load_saved_examples(args, evaluate=False):
 
 
 def load_combined_examples(args, evaluate=False):
+    """
+    Deprecated sadly
+    """
     if args.local_rank not in [-1, 0] and not evaluate:
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
         torch.distributed.barrier()
@@ -679,58 +633,46 @@ def load_combined_examples(args, evaluate=False):
     ensemble_dir = args.saved_processed_data_dir
 
     if evaluate:
-        with open(os.path.join(ensemble_dir, 'combined_features_dev.pkl'), 'rb') as f:
-            combined_features = pickle.load(f)
-        with open(os.path.join(ensemble_dir, 'combined_all_results_dev.pkl'), 'rb') as f:
-            combined_all_results = pickle.load(f)
-        with open(os.path.join(ensemble_dir, 'combined_tokenizers_dev.pkl'), 'rb') as f:
-            combined_tokenizers = pickle.load(f)
+        with open(os.path.join(ensemble_dir, 'saved_data_dev.pkl'), 'rb') as f:
+            saved_data = pickle.load(f)
     else:
-        with open(os.path.join(ensemble_dir, 'combined_features_train.pkl'), 'rb') as f:
-            combined_features = pickle.load(f)
-        with open(os.path.join(ensemble_dir, 'combined_all_results_train.pkl'), 'rb') as f:
-            combined_all_results = pickle.load(f)
-        with open(os.path.join(ensemble_dir, 'combined_tokenizers_train.pkl'), 'rb') as f:
-            combined_tokenizers = pickle.load(f)
+        with open(os.path.join(ensemble_dir, 'saved_data_train.pkl'), 'rb') as f:
+            saved_data = pickle.load(f)
+    # saved_data: [features, all_results, tokenizer]
+    features, combined_all_results, tokenizer = saved_data
+    assert np.array_equal([f.start_position for f in features[0]], [f.start_position for f in features[1]]), print("Same family Same features")
 
-    # Convert to Tensors and build dataset
-    all_input_ids = []
-    all_example_indices = []
+    # Same family same feature and tokenizer, so we pick the first one
+    features = features[0]
+    tokenizer = tokenizer[0]
     all_predict_start_logits = []
     all_predict_end_logits = []
-    for features in combined_features:
-        all_input_ids.append(torch.tensor([f.input_ids for f in features], dtype=torch.long))
+    # Convert to Tensors and build dataset
+    all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
+
     for all_results in combined_all_results:
         all_predict_start_logits.append(torch.tensor([s.start_logits for s in all_results], dtype=torch.float))
         all_predict_end_logits.append(torch.tensor([s.end_logits for s in all_results], dtype=torch.float))
 
     if evaluate:
-        for all_input_id in all_input_ids:
-            all_example_indices.append(torch.arange(all_input_id.size(0), dtype=torch.long))
-            all_example_indices = torch.stack(all_example_indices).transpose(1, 0)
+        all_example_indices = torch.arange(all_input_ids.size(0), dtype=torch.long)
 
-    all_input_ids = torch.stack(all_input_ids).permute(1, 0, 2)
     all_predict_start_logits = torch.stack(all_predict_start_logits).permute(1, 0, 2)
     all_predict_end_logits = torch.stack(all_predict_end_logits).permute(1, 0, 2)
 
-    print(all_input_ids.shape, all_predict_start_logits.shape, all_predict_end_logits.shape)
+    # print(f'all_input_ids: {all_input_ids.shape}, all_predict_start_logits{all_predict_start_logits.shape}, all_predict_end_logits:{all_predict_end_logits.shape}')
 
     if evaluate:
         dataset = TensorDataset(
-            all_example_indices, all_predict_start_logits, all_predict_end_logits
+            all_predict_start_logits, all_predict_end_logits, all_example_indices
         )
     else:
-        all_start_positions = []
-        all_end_positions = []
-        for features in combined_features:
-            all_start_positions.append(torch.tensor([f.start_position for f in features], dtype=torch.long))
-            all_end_positions.append(torch.tensor([f.end_position for f in features], dtype=torch.long))
-        all_start_positions = torch.stack(all_start_positions).transpose(1, 0)
-        all_end_positions = torch.stack(all_end_positions).transpose(1, 0)
+        all_start_positions = torch.tensor([f.start_position for f in features], dtype=torch.long)
+        all_end_positions = torch.tensor([f.end_position for f in features], dtype=torch.long)
+        # print(all_start_positions.shape, all_end_positions.shape)
         dataset = TensorDataset(
             all_predict_start_logits, all_predict_end_logits, all_start_positions, all_end_positions
         )
-    print(torch.all(torch.eq(all_start_positions[0], all_start_positions[1])))
     if evaluate:
         assert len(examples) == 6078
     else:
@@ -739,11 +681,12 @@ def load_combined_examples(args, evaluate=False):
     if args.local_rank == 0 and not evaluate:
         # Make sure only the first process in distributed training process the dataset, and the others will use the cache
         torch.distributed.barrier()
-    return examples, combined_features, dataset, combined_tokenizers
+    return examples, features, dataset, tokenizer, len(combined_all_results)
 
 
 def main():
     args = get_bert_args()
+
     assert not (args.do_output and args.do_train), 'Don\'t output and train at the same time!'
     if args.do_output:
         sub_dir_prefix = 'output'
@@ -752,7 +695,7 @@ def main():
     else:
         sub_dir_prefix = 'test'
     # No matter what, we do ensemble here lol
-    sub_dir_prefix = 'ensemble'
+    sub_dir_prefix = 'ensemble3'
     args.save_dir = util.get_save_dir(args.save_dir, args.name, sub_dir_prefix)
     args.output_dir = args.save_dir
 
@@ -789,12 +732,6 @@ def main():
         args.n_gpu = 1
     args.device = device
 
-    # Setup logging
-    # logging.basicConfig(
-    #     format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
-    #     datefmt="%m/%d/%Y %H:%M:%S",
-    #     level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN,
-    # )
     logger.warning(
         "Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
         args.local_rank,
@@ -807,34 +744,9 @@ def main():
     # Set seed
     set_seed(args)
 
-    # Load pretrained model and tokenizer
-    # if args.local_rank not in [-1, 0]:
-    #     # Make sure only the first process in distributed training will download model & vocab
-    #     torch.distributed.barrier()
-
-    # args.model_type = args.model_type.lower()
-    # config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
-    # config = config_class.from_pretrained(
-    #     args.config_name if args.config_name else args.model_name_or_path,
-    #     cache_dir=args.cache_dir if args.cache_dir else None,
-    # )
-    # tokenizer = tokenizer_class.from_pretrained(
-    #     args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
-    #     do_lower_case=args.do_lower_case,
-    #     cache_dir=args.cache_dir if args.cache_dir else None,
-    # )
-    # model = model_class.from_pretrained(
-    #     args.model_name_or_path,
-    #     from_tf=bool(".ckpt" in args.model_name_or_path),
-    #     config=config,
-    #     cache_dir=args.cache_dir if args.cache_dir else None,
-    # )
-
     if args.local_rank == 0:
         # Make sure only the first process in distributed training will download model & vocab
         torch.distributed.barrier()
-
-    # model.to(args.device)
 
     logger.info("Training/evaluation parameters %s", args)
 
@@ -844,14 +756,15 @@ def main():
     if args.fp16:
         try:
             import apex
-
             apex.amp.register_half_function(torch, "einsum")
         except ImportError:
             raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
 
     # Training
-    if args.do_train:
-        examples, combined_features, dataset, combined_tokenizers = load_combined_examples(args, evaluate=False)
+    if args.do_train and (args.do_weighted_ensemble or args.do_stack_ensemble):
+        examples, features, train_dataset, tokenizer, n_models = load_combined_examples(args, evaluate=False)
+        model = EnsembleQA(n_models) if args.do_weighted_ensemble else EnsembleStackQA(n_models)
+        model = model.to(args.device)
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
@@ -862,19 +775,16 @@ def main():
             os.makedirs(args.output_dir)
 
         logger.info("Saving model checkpoint to %s", args.output_dir)
-        # Save a trained model, configuration and tokenizer using `save_pretrained()`.
-        # They can then be reloaded using `from_pretrained()`
-        # Take care of distributed/parallel training
         model_to_save = model.module if hasattr(model, "module") else model
-        model_to_save.save_pretrained(args.output_dir)
-        tokenizer.save_pretrained(args.output_dir)
+        # model_to_save.save_pretrained(output_dir)  # BertQA is not a PreTrainedModel class
+        torch.save(model_to_save, os.path.join(args.output_dir, 'pytorch_model.bin'))  # save entire model
+        tokenizer.save_pretrained(args.output_dir)  # save tokenizer
 
         # Good practice: save your training arguments together with the trained model
         torch.save(args, os.path.join(args.output_dir, "training_args.bin"))
 
         # Load a trained model and vocabulary that you have fine-tuned
-        model = model_class.from_pretrained(args.output_dir)  # , force_download=True)
-        tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
+        model = torch.load(os.path.join(args.output_dir, 'cur_best', 'pytorch_model.bin'))
         model.to(args.device)
 
     # Evaluation - we can ask to evaluate all the checkpoints (sub-directories) in a directory
@@ -891,18 +801,18 @@ def main():
                 # logging.getLogger("transformers.modeling_utils").setLevel(logging.WARN)  # Reduce model loading logs
         else:
             logger.info("Loading checkpoint %s for evaluation", args.model_name_or_path)
-            checkpoints = [args.model_name_or_path]
-
+            checkpoints = [args.eval_dir]
         logger.info("Evaluate the following checkpoints: %s", checkpoints)
 
         for checkpoint in checkpoints:
             # Reload the model
             global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
-            model = model_class.from_pretrained(checkpoint)  # , force_download=True)
+            # Load a trained model and vocabulary that you have fine-tuned
+            model = torch.load(os.path.join(args.output_dir, 'cur_best', 'pytorch_model.bin'))
             model.to(args.device)
 
             # Evaluate
-            result = evaluate(
+            result, all_predictions = evaluate(
                 args,
                 model,
                 tokenizer,
@@ -916,16 +826,19 @@ def main():
             results.update(result)
 
             logger.info(f'Convert format and Writing submission file to directory {args.output_dir}...')
-            util.convert_submission_format_and_save(args.output_dir, prediction_file_path=os.path.join(args.output_dir, 'predictions_.json'))
+            util.save_json_file(os.path.join(args.output_dir, 'cur_best', 'predictions_.json'), all_predictions)
+            util.convert_submission_format_and_save(
+                args.output_dir, prediction_file_path=os.path.join(
+                    args.output_dir, 'cur_best', 'predictions_.json'))
 
     logger.info("Results: {}".format(results))
 
     # Generate ensemble output
-    if args.do_output and args.local_rank in [-1, 0]:
+    if args.do_ensemble_voting and args.local_rank in [-1, 0]:
         results = ensemble_vote(args, save_dir=args.save_dir, predict_prob_mode='add')
 
     return results
-    # load_combined_examples(args, evaluate=False)
+    # load_combined_examples(args, evaluate=True)
 
 
 if __name__ == "__main__":
