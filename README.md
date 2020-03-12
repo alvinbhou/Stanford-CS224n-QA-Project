@@ -24,6 +24,7 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 ### Benchmarks For CLS Model
 | Model           | EM       | F1      | NoAns_f1 | HasAns_f1 | batch_size | epochs |
 | --------------- | -------- | ------- | -------- | --------- | ---------- |--------|
+| Bert-base       | 73.74    | 76.69   | 75.98    | 77.47     | 8          | 2      |
 | Roberta-base    | 79.04    | 82.24   | 82.17    | 82.33     | 8          | 2      |
 | ALBERT-base-v2  | 78.91    | 82.14   | 81.91    | 82.38     | 8          | 2      |
 
@@ -41,7 +42,32 @@ python ensemble_squad.py \
   --do_lower_case \
   --train_file data/train-v2.0.json \
   --per_gpu_train_batch_size 512 \
-  --num_train_epochs 20 \
+  --num_train_epochs 200 \
+  --max_seq_length 256 \
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --predict_file data/dev-v2.0.json \
+  --saved_processed_data_dir output/saved_data_6 \
+  --logging_steps 1 \
+  --save_steps 1000 \
+  --evaluate_during_saving  \
+  --save_best_only \
+  --learning_rate 5e-5
+```
+
+#### Run ensemble stack train
+```bash
+python ensemble_squad.py \
+  --name ensemble-weighted \
+  --model_type placeholder \
+  --model_name_or_path placeholder \
+  --do_train \
+  --do_eval \
+  --do_stack_ensemble \
+  --do_lower_case \
+  --train_file data/train-v2.0.json \
+  --per_gpu_train_batch_size 512 \
+  --num_train_epochs 50 \
   --max_seq_length 256 \
   --doc_stride 128 \
   --version_2_with_negative \
