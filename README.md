@@ -27,6 +27,50 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 | Roberta-base    | 79.04    | 82.24   | 82.17    | 82.33     | 8          | 2      |
 | ALBERT-base-v2  | 78.91    | 82.14   | 81.91    | 82.38     | 8          | 2      |
 
+### Ensemble
+
+#### Run ensemble weighted train
+```bash
+python ensemble_squad.py \
+  --name ensemble-weighted \
+  --model_type placeholder \
+  --model_name_or_path placeholder \
+  --do_train \
+  --do_eval \
+  --do_weighted_ensemble \
+  --do_lower_case \
+  --train_file data/train-v2.0.json \
+  --per_gpu_train_batch_size 512 \
+  --num_train_epochs 20 \
+  --max_seq_length 256 \
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --predict_file data/dev-v2.0.json \
+  --saved_processed_data_dir output/saved_data_6 \
+  --logging_steps 1 \
+  --save_steps 1000 \
+  --evaluate_during_saving  \
+  --save_best_only \
+  --learning_rate 5e-5
+```
+
+#### Run ensemble voting
+
+```bash
+python ensemble_squad.py \
+  --name ensemble-voting \
+  --model_type placeholder \
+  --model_name_or_path placeholder \
+  --do_ensemble_voting \
+  --do_lower_case \
+  --train_file data/train-v2.0.json \
+  --per_gpu_train_batch_size 8 \
+  --max_seq_length 256 \
+  --doc_stride 128 \
+  --version_2_with_negative \
+  --predict_file data/dev-v2.0.json \
+  --saved_processed_data_dir output/only_dev_1
+```
 
 #### Training
 For SQuAD2.0 example, you could run `./run_squad.sh`
@@ -318,58 +362,8 @@ python run_squad.py \
   --per_gpu_eval_batch_size 128
 ```
 
-### Run ensemble weighted train
-```bash
-python ensemble_squad.py \
- --name ensemble-test \
-  --model_type placeholder \
-  --model_name_or_path placeholder \
-  --do_train \
-  --do_eval \
-  --do_lower_case \
-  --train_file data/train-v2.0.json \
-  --per_gpu_train_batch_size 512 \
-  --num_train_epochs 100000 \
-  --max_seq_length 256 \
-  --doc_stride 128 \
-  --version_2_with_negative \
-  --predict_file data/dev-v2.0.json \
-  --saved_processed_data_dir output/saved_data_6 \
-  --logging_steps 1 \
-  --save_steps 200 \
-  --evaluate_during_saving  \
-  --save_best_only \
-  --learning_rate 5e-5
-```
-
-#### Run ensemble voting
-
-```bash
-python ensemble_squad.py \
- --name ensemble-test \
-  --model_type placeholder \
-  --model_name_or_path placeholder \
-  --do_output \
-  --do_lower_case \
-  --train_file data/train-v2.0.json \
-  --per_gpu_train_batch_size 8 \
-  --max_seq_length 256 \
-  --doc_stride 128 \
-  --version_2_with_negative \
-  --predict_file data/dev-v2.0.json \
-  --saved_processed_data_dir output/only_dev_1
-
-```
 
 
-### Ensemble features
-```
-albert-xxlarge-v1
-albert-large-v2
-roberta-large
-bert-large
-Shape: train (130319, 4, 2, 256) dev (6078, 4, 2, 256)
-```
 
 ### Original Training script
 
