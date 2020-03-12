@@ -325,7 +325,7 @@ python ensemble_squad.py \
   --model_type placeholder \
   --model_name_or_path placeholder \
   --do_train \
-   --do_eval \
+  --do_eval \
   --do_lower_case \
   --train_file data/train-v2.0.json \
   --per_gpu_train_batch_size 512 \

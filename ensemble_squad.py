@@ -226,7 +226,7 @@ def train(args, train_dataset, model, tokenizer):
             outputs = model(**inputs)
             # model outputs are always tuple in transformers (see doc)
             loss = outputs[0]
-
+            # print(f'loss at step: {global_step} loss {loss}')
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel (not distributed) training
             if args.gradient_accumulation_steps > 1:
@@ -237,6 +237,7 @@ def train(args, train_dataset, model, tokenizer):
                     scaled_loss.backward()
             else:
                 loss.backward()
+                # logger.info(f"Weights at: {model.weights}")
 
             tr_loss += loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -268,6 +269,7 @@ def train(args, train_dataset, model, tokenizer):
 
                         # log eval result
                         logger.info(f"Evaluation result at {global_step} step: {eval_results}")
+                        logger.info(f"Weights at {model.weights}")
                     tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
                     tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                     logging_loss = tr_loss
@@ -289,6 +291,7 @@ def train(args, train_dataset, model, tokenizer):
                             tb_writer.add_scalar("eval_{}".format(key), value, global_step)
                         # log eval result
                         logger.info(f"Evaluation result at {global_step} step: {eval_results}")
+                        logger.info(f"Weights at {model.weights}")
                         # save current result at args.output_dir
                         if os.path.exists(os.path.join(args.output_dir, "eval_result.json")):
                             util.read_and_update_json_file(os.path.join(args.output_dir, "eval_result.json"), {global_step: eval_results})
@@ -369,9 +372,9 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
             eval_feature = features[example_index.item()]
             unique_id = int(eval_feature.unique_id)
             is_impossible = eval_feature.is_impossible
-            
+
             output = [to_list(output[i]) for output in outputs]
-            start_logits, end_logits, _ = output
+            start_logits, end_logits = output
             result = SquadResult(unique_id, start_logits, end_logits)
 
             all_results.append(result)
@@ -387,7 +390,7 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
         output_null_log_odds_file = os.path.join(save_dir, "null_odds_{}.json".format(prefix))
     else:
         output_null_log_odds_file = None
-   
+
     predictions = compute_predictions_logits(
         examples,
         features,
@@ -648,6 +651,7 @@ def load_combined_examples(args, evaluate=False):
 
 def main():
     args = get_bert_args()
+
     assert not (args.do_output and args.do_train), 'Don\'t output and train at the same time!'
     if args.do_output:
         sub_dir_prefix = 'output'
@@ -692,6 +696,10 @@ def main():
         torch.distributed.init_process_group(backend="nccl")
         args.n_gpu = 1
     args.device = device
+    model = EnsembleQA(3, args.device)
+    # model.to(args.device)
+    print('Model params!')
+    print(list(model.parameters()))
 
     logger.warning(
         "Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
@@ -725,7 +733,9 @@ def main():
     if args.do_train:
         examples, features, train_dataset, tokenizer, n_models = load_combined_examples(args, evaluate=False)
         model = EnsembleQA(n_models, args.device)
-        model.to(args.device)
+        # model.to(args.device)
+        print('Model params!')
+        print(list(model.parameters()))
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
