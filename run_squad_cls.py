@@ -253,8 +253,8 @@ def train(args, train_dataset, model, tokenizer):
             loss = loss_qa + 0.5 * loss_cls
 
             # Compute training classification accuracy
-            logits_cls = outputs[-1]
-            predicted_cls = torch.max(logits_cls, 1)[1]
+            prob_cls = outputs[-1]
+            predicted_cls = torch.max(prob_cls, 1)[1]
             accuracy_cls = (predicted_cls == y_cls).sum().float() / y_cls.size()[0]
 
             if args.n_gpu > 1:
@@ -453,9 +453,12 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
                 )
 
             else:
-                start_logits, end_logits, logits_cls = output
+                start_logits, end_logits, logits_cls, prob_cls = output
 
-                if np.argmax(logits_cls) == int(not is_impossible):
+                prob_cls = np.asarray(prob_cls, dtype=np.float)
+                predict_cls = np.argmax(prob_cls)
+
+                if predict_cls == int(not is_impossible):
                     if is_impossible:
                         y_cls_tn += 1
                     else:
@@ -468,7 +471,7 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
                 result = SquadResult(unique_id, start_logits, end_logits)
                 # Add cls prediction
                 if args.force_cls_pred:
-                    result.cls_prediction = np.argmax(logits_cls)
+                    result.prob_cls = prob_cls
 
             all_results.append(result)
 
@@ -534,12 +537,12 @@ def evaluate(args, model, tokenizer, prefix="", save_dir='', save_log_path=None)
         n_force = 0
         for example_index, example in enumerate(examples):
             eval_features = example_index_to_features[example_index]
-            n_pred_noAns = 0
+            prob = []
             for eval_feature in eval_features:
                 eval_result = unique_id_to_result[eval_feature.unique_id]
-                if not eval_result.cls_prediction:
-                    n_pred_noAns += 1
-            if n_pred_noAns / len(eval_features) > 0.5:
+                prob.append(eval_result.prob_cls[0])
+
+            if np.mean(prob) >= 0.8:
                 predictions[example.qas_id] = ""
                 n_force += 1
 

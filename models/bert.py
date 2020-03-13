@@ -30,14 +30,16 @@ class BertQA(nn.Module):
             loss, start_scores, end_scores, hidden_states = outputs[0], outputs[1], outputs[2], outputs[3]  # loss: original QA loss from model
             output_embeddings = hidden_states[-1]                                           # (batch_size, sequence_length, hidden_size)
             logits_cls = self.fc_cls(output_embeddings.permute([1, 0, 2])[0]).squeeze(dim=0)     # (1, batch_size, hidden_size) -> (batch_size, 2)
+            prob_cls = nn.functional.softmax(logits_cls, -1)
             loss_cls = self.criterion_cls(logits_cls, y_cls)
-            return (loss, loss_cls), start_scores, end_scores, logits_cls
+            return (loss, loss_cls), start_scores, end_scores, logits_cls, prob_cls
 
         elif not self.training and self.do_cls:                                             # Eval mode
             start_logits, end_logits, hidden_states = self.model(input_ids, **kwargs)
             output_embeddings = hidden_states[-1]                                           # (batch_size, sequence_length, hidden_size)
             logits_cls = self.fc_cls(output_embeddings.permute([1, 0, 2])[0]).squeeze()     # (1, batch_size, hidden_size) -> (batch_size, 2)
-            return start_logits, end_logits, logits_cls
+            prob_cls = nn.functional.softmax(logits_cls, -1)
+            return start_logits, end_logits, logits_cls, prob_cls
         else:
             return self.model(input_ids, **kwargs)
 
