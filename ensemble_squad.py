@@ -497,22 +497,18 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob
     logger.info(f'Number of predicions {num_of_predicions}')
 
     final_predictions = collections.OrderedDict()
-
-    end_result = collections.OrderedDict()
+    output_result = collections.OrderedDict()
     # Grid Search
     if args.do_grid_search:
         grid_search_results = collections.OrderedDict()
         grid_search_predictions = collections.OrderedDict()
-        for weights in product(np.arange(5), repeat=len(all_probs) - 1):
-
+        for weights in product(np.arange(6), repeat=len(all_probs)):
+            if weights == (0, 0, 0, 0, 0):
+                continue
             for qas_id in all_predictions[0].keys():
                 probs = np.array([d_prob[qas_id] for d_prob in all_probs])
-                probs[1] *= 4
                 for i, w in enumerate(weights):
-                    if i >= 1:
-                        probs[i + 1] *= w
-                    else:
-                        probs[i] *= 2
+                    probs[i] *= w
 
                 idx = np.argmax(probs)
                 final_predictions[qas_id] = all_predictions[idx][qas_id]
@@ -539,11 +535,12 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob
                     grid_search_results = final_results
                     grid_search_predictions = final_predictions
         # save log to file
-        end_result[best_weights] = grid_search_results
-        util.save_json_file(os.path.join(save_dir, 'eval_results.json'), end_result)
+        logger.info(f'Best Weights: {best_weights}')
+        output_result[best_weights] = grid_search_results
+        util.save_json_file(os.path.join(save_dir, 'eval_results.json'), output_result)
 
         # save prediction to file
-        #TODO save grid search best
+        # TODO save grid search best
         util.save_json_file(os.path.join(save_dir, 'predictions_.json'), grid_search_predictions)
         util.convert_submission_format_and_save(
             save_dir, prediction_file_path=os.path.join(

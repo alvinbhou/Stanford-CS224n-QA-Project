@@ -28,6 +28,14 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 | Roberta-base    | 79.04    | 82.24   | 82.17    | 82.33     | 8          | 2      |
 | ALBERT-base-v2  | 78.91    | 82.14   | 81.91    | 82.38     | 8          | 2      |
 
+### Ensemble Benchmarks for ALBERT-xxlarge-v1 + ALBERT-large-v2
+| Ensemble Method             | EM       | F1      | 
+| --------------------------  | -------- | ------- | 
+| Most Confidence             | 85.29    | 87.75   | 
+| Grid Search Most Confidence | 86.80    | 89.49   | 
+| Weighted Most Confidence    | 86.89    | 89.55   |
+| Ensemble Stacking           | 86.72    | 89.51   |
+
 ### Ensemble
 
 #### Run ensemble weighted train
