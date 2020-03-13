@@ -327,7 +327,8 @@ def train(args, train_dataset, model, tokenizer):
                             output_dir, prediction_file_path=os.path.join(
                                 output_dir, 'predictions_.json'))
                         if args.save_best_only:
-                            util.save_json_file(os.path.join(output_dir, "eval_result.json"), {global_step: eval_results})
+                            key = ','.join(map(str, model.weights.tolist())) if args.do_weighted_ensemble else global_step
+                            util.save_json_file(os.path.join(output_dir, "eval_result.json"), {key: eval_results})
 
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()
@@ -554,26 +555,24 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob
             idx = np.argmax(probs)
             final_predictions[qas_id] = all_predictions[idx][qas_id]
 
-            """
-            logger.info('Model individual results')
-            for i in range(len(tokenizers)):
-                results = squad_evaluate(examples, all_predictions[i])
-                logger.info(results)
-            """
-            # Compute the F1 and exact scores.
-            logger.info('Ensemble results')
-            final_results = squad_evaluate(examples, final_predictions)
-            logger.info(final_results)
+        logger.info('Model individual results')
+        for i in range(len(tokenizers)):
+            results = squad_evaluate(examples, all_predictions[i])
+            logger.info(results)
+        # Compute the F1 and exact scores.
+        logger.info('Ensemble results')
+        final_results = squad_evaluate(examples, final_predictions)
+        logger.info(final_results)
 
-            # save log to file
-            util.save_json_file(os.path.join(save_dir, 'eval_results.json'), final_results)
+        # save log to file
+        util.save_json_file(os.path.join(save_dir, 'eval_results.json'), final_results)
 
-            util.save_json_file(os.path.join(save_dir, 'predictions_.json'), final_predictions)
-            util.convert_submission_format_and_save(
-                save_dir, prediction_file_path=os.path.join(
-                    save_dir, 'predictions_.json'))
+        util.save_json_file(os.path.join(save_dir, 'predictions_.json'), final_predictions)
+        util.convert_submission_format_and_save(
+            save_dir, prediction_file_path=os.path.join(
+                save_dir, 'predictions_.json'))
 
-            return final_results
+        return final_results
 
 
 def load_saved_examples(args, evaluate=False):

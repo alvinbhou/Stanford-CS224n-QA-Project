@@ -14,6 +14,8 @@ print(dirs)
 # You could overwrite it yourself
 # e.g. dirs = ['albert-large-v2-dev', 'roberta-large-dev']
 
+dirs = ['bert-large-dev', 'bert-large-batch6-dev']
+
 
 def generate(only_dev=True):
     features_train = []
