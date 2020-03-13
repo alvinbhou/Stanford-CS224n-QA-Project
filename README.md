@@ -36,6 +36,11 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 | Weighted Most Confidence    | 86.89    | 89.55   | 0.8367 : 0.6530 |
 | Ensemble Stacking           | 86.72    | 89.51   | x               | 
 
+### Ensemble 7 models
+| Ensemble Method             | EM       | F1     |
+| --------------------------  | -------- | -------| 
+| Grid Search Most Confidence | 87.33    | 89.81  |
+
 ### Ensemble
 
 #### Run ensemble weighted train
