@@ -29,12 +29,12 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 | ALBERT-base-v2  | 78.91    | 82.14   | 81.91    | 82.38     | 8          | 2      |
 
 ### Ensemble Benchmarks for ALBERT-xxlarge-v1 + ALBERT-large-v2
-| Ensemble Method             | EM       | F1      | 
-| --------------------------  | -------- | ------- | 
-| Most Confidence             | 85.29    | 87.75   | 
-| Grid Search Most Confidence | 86.80    | 89.49   | 
-| Weighted Most Confidence    | 86.89    | 89.55   |
-| Ensemble Stacking           | 86.72    | 89.51   |
+| Ensemble Method             | EM       | F1      | Weights |
+| --------------------------  | -------- | ------- | --------------- |
+| Most Confidence             | 85.29    | 87.75   | x               | 
+| Grid Search Most Confidence | 86.80    | 89.49   | 4 : 3           | 
+| Weighted Most Confidence    | 86.89    | 89.55   | 0.8367 : 0.6530 |
+| Ensemble Stacking           | 86.72    | 89.51   | x               | 
 
 ### Ensemble
 
