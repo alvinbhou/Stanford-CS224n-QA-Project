@@ -230,6 +230,7 @@ def get_bert_args():
     parser.add_argument("--threads", type=int, default=1, help="multiple threads for converting example to features")
     # NEW!
     parser.add_argument("--force_cls_pred", action="store_true", help="Whether to use cls to predict no answer.")
+    parser.add_argument("--do_grid_search", action="store_true", help="Whether to perform grid search for ensemble voting")
     parser.add_argument("--eval_dir", type=str, default='', help='Evaluation Directory')
     args = parser.parse_args()
     return args
