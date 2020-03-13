@@ -499,58 +499,78 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob
     final_predictions = collections.OrderedDict()
 
     # Grid Search
-    grid_search_results = collections.OrderedDict()
-    grid_search_predictions = collections.OrderedDict()
-    for weights in product(np.arange(6), repeat=len(all_probs)):
-        if weights == (0, 0, 0, 0, 0):
-            continue
+    if args.do_grid_search:
+        grid_search_results = collections.OrderedDict()
+        grid_search_predictions = collections.OrderedDict()
+        for weights in product(np.arange(6), repeat=len(all_probs)):
+            if weights == (0, 0, 0, 0, 0):
+                continue
+            for qas_id in all_predictions[0].keys():
+                probs = np.array([d_prob[qas_id] for d_prob in all_probs])
+                for i, w in enumerate(weights):
+                    probs[i] *= w
+
+                idx = np.argmax(probs)
+                final_predictions[qas_id] = all_predictions[idx][qas_id]
+
+            """
+            logger.info('Model individual results')
+            for i in range(len(tokenizers)):
+                results = squad_evaluate(examples, all_predictions[i])
+                logger.info(results)
+            """
+            # Compute the F1 and exact scores.
+            logger.info(f'Weights: {weights}')
+            logger.info('Ensemble results')
+            final_results = squad_evaluate(examples, final_predictions)
+            logger.info(final_results)
+
+            if len(grid_search_results) == 0:
+                grid_search_results = final_results
+                grid_search_predictions = final_predictions
+            else:
+                if grid_search_results['exact'] + grid_search_results['f1'] < final_results['exact'] + final_results['f1']:
+                    cur_best = final_results['exact'] + final_results['f1']
+                    grid_search_results = final_results
+                    grid_search_predictions = final_predictions
+        # save log to file
+        util.save_json_file(os.path.join(save_dir, 'eval_results.json'), grid_search_results)
+
+        # save prediction to file
+        #TODO save grid search best
+        util.save_json_file(os.path.join(save_dir, 'predictions_.json'), grid_search_predictions)
+        util.convert_submission_format_and_save(
+            save_dir, prediction_file_path=os.path.join(
+                save_dir, 'predictions_.json'))
+
+        return grid_search_results
+    else:
         for qas_id in all_predictions[0].keys():
             probs = np.array([d_prob[qas_id] for d_prob in all_probs])
-            for i, w in enumerate(weights):
-                probs[i] *= w
-            """
-            Do weighted probs here, example"
-    
-            probs[0] *= 4
-            probs[1] *= 2
-            probs[2] *= 2
-            probs[3] *= 3
-            """
 
             idx = np.argmax(probs)
             final_predictions[qas_id] = all_predictions[idx][qas_id]
 
-        """
-        logger.info('Model individual results')
-        for i in range(len(tokenizers)):
-            results = squad_evaluate(examples, all_predictions[i])
-            logger.info(results)
-        """
-        # Compute the F1 and exact scores.
-        logger.info(f'Weights: {weights}')
-        logger.info('Ensemble results')
-        final_results = squad_evaluate(examples, final_predictions)
-        logger.info(final_results)
+            """
+            logger.info('Model individual results')
+            for i in range(len(tokenizers)):
+                results = squad_evaluate(examples, all_predictions[i])
+                logger.info(results)
+            """
+            # Compute the F1 and exact scores.
+            logger.info('Ensemble results')
+            final_results = squad_evaluate(examples, final_predictions)
+            logger.info(final_results)
 
-        if len(grid_search_results) == 0:
-            grid_search_results = final_results
-            grid_search_predictions = final_predictions
-        else:
-            if grid_search_results['exact'] + grid_search_results['f1'] < final_results['exact'] + final_results['f1']:
-                cur_best = final_results['exact'] + final_results['f1']
-                grid_search_results = final_results
-                grid_search_predictions = final_predictions
-    # save log to file
-    util.save_json_file(os.path.join(save_dir, 'eval_results.json'), grid_search_results)
+            # save log to file
+            util.save_json_file(os.path.join(save_dir, 'eval_results.json'), final_results)
 
-    # save prediction to file
-    #TODO save grid search best
-    util.save_json_file(os.path.join(save_dir, 'predictions_.json'), grid_search_predictions)
-    util.convert_submission_format_and_save(
-        save_dir, prediction_file_path=os.path.join(
-            save_dir, 'predictions_.json'))
+            util.save_json_file(os.path.join(save_dir, 'predictions_.json'), final_predictions)
+            util.convert_submission_format_and_save(
+                save_dir, prediction_file_path=os.path.join(
+                    save_dir, 'predictions_.json'))
 
-    return grid_search_results
+            return final_results
 
 
 def load_saved_examples(args, evaluate=False):
