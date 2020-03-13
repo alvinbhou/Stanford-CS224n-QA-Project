@@ -498,17 +498,21 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob
 
     final_predictions = collections.OrderedDict()
 
+    end_result = collections.OrderedDict()
     # Grid Search
     if args.do_grid_search:
         grid_search_results = collections.OrderedDict()
         grid_search_predictions = collections.OrderedDict()
-        for weights in product(np.arange(6), repeat=len(all_probs)):
-            if weights == (0, 0, 0, 0, 0):
-                continue
+        for weights in product(np.arange(5), repeat=len(all_probs) - 1):
+
             for qas_id in all_predictions[0].keys():
                 probs = np.array([d_prob[qas_id] for d_prob in all_probs])
+                probs[1] *= 4
                 for i, w in enumerate(weights):
-                    probs[i] *= w
+                    if i >= 1:
+                        probs[i + 1] *= w
+                    else:
+                        probs[i] *= 2
 
                 idx = np.argmax(probs)
                 final_predictions[qas_id] = all_predictions[idx][qas_id]
@@ -526,15 +530,17 @@ def ensemble_vote(args, save_dir='', save_log_path=None, prefix='', predict_prob
             logger.info(final_results)
 
             if len(grid_search_results) == 0:
+                best_weights = weights
                 grid_search_results = final_results
                 grid_search_predictions = final_predictions
             else:
                 if grid_search_results['exact'] + grid_search_results['f1'] < final_results['exact'] + final_results['f1']:
-                    cur_best = final_results['exact'] + final_results['f1']
+                    best_weights = weights
                     grid_search_results = final_results
                     grid_search_predictions = final_predictions
         # save log to file
-        util.save_json_file(os.path.join(save_dir, 'eval_results.json'), grid_search_results)
+        end_result[best_weights] = grid_search_results
+        util.save_json_file(os.path.join(save_dir, 'eval_results.json'), end_result)
 
         # save prediction to file
         #TODO save grid search best
