@@ -41,6 +41,12 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 | --------------------------  | -------- | -------| 
 | Grid Search Most Confidence | 87.33    | 89.81  |
 
+### Ensemble albert family (2 albert-large, 1 albert-xxlarge)
+| Ensemble Method             | EM       | F1     |
+| --------------------------  | -------- | -------| 
+| Most Confidence             | 85.97    | 88.33  |
+| Grid Search Most Confidence | 86.80    | 89.49  |
+
 ### Ensemble
 
 #### Run ensemble weighted train
