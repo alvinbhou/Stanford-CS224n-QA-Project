@@ -53,7 +53,7 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 | --------------------------  | -------- | ------- | --------------- |
 | Most Confidence             | 83.38    | 86.12   | x               | 
 | Grid Search Most Confidence | 83.60    | 86.30   | 5 : 5 : 4       | 
-| Weighted Most Confidence    | 83.05    | 86.04   | 0.99 : 1 : 1.05 |
+| Weighted Most Confidence    | 83.05    | 86.04   | 1 :0.99  : 1.05 |
 | Ensemble Stacking           | 82.81    | 85.83   | x               | 
 
 
