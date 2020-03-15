@@ -14,7 +14,12 @@ print(dirs)
 # You could overwrite it yourself
 # e.g. dirs = ['albert-large-v2-dev', 'roberta-large-dev']
 
-dirs = ['bert-large-dev', 'bert-large-batch6-dev']
+dirs = ['bert-large-dev',
+        'bert-large-train',
+        'bert-large-batch6-dev',
+        'bert-large-batch6-train',
+        'bert-large-cls-weight0.5-without-force-pred-eval-dev',
+        'bert-large-cls-weight0.5-without-force-pred-eval-train']
 
 
 def generate(only_dev=True):
@@ -69,4 +74,4 @@ def generate(only_dev=True):
 
 
 if __name__ == "__main__":
-    generate(only_dev=True)
+    generate(only_dev=False)

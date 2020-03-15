@@ -28,6 +28,11 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 | Roberta-base    | 79.04    | 82.24   | 82.17    | 82.33     | 8          | 2      |
 | ALBERT-base-v2  | 78.91    | 82.14   | 81.91    | 82.38     | 8          | 2      |
 
+### Ensemble 7 models
+| Ensemble Method             | EM       | F1     |
+| --------------------------  | -------- | -------| 
+| Grid Search Most Confidence | 87.33    | 89.81  |
+
 ### Ensemble Benchmarks for ALBERT-xxlarge-v1 + ALBERT-large-v2
 | Ensemble Method             | EM       | F1      | Weights |
 | --------------------------  | -------- | ------- | --------------- |
@@ -36,16 +41,21 @@ Based on the script [`run_squad.py`](https://github.com/huggingface/transformers
 | Weighted Most Confidence    | 86.89    | 89.55   | 0.8367 : 0.6530 |
 | Ensemble Stacking           | 86.72    | 89.51   | x               | 
 
-### Ensemble 7 models
-| Ensemble Method             | EM       | F1     |
-| --------------------------  | -------- | -------| 
-| Grid Search Most Confidence | 87.33    | 89.81  |
 
 ### Ensemble albert family (2 albert-large, 1 albert-xxlarge)
 | Ensemble Method             | EM       | F1     |
 | --------------------------  | -------- | -------| 
 | Most Confidence             | 85.97    | 88.33  |
 | Grid Search Most Confidence | 86.80    | 89.49  |
+
+### Ensemble Benchmarks for BERT-Family (BERT-large + BERT-large-batch6 + BERT-large-cls) 
+| Ensemble Method             | EM       | F1      | Weights |
+| --------------------------  | -------- | ------- | --------------- |
+| Most Confidence             | 83.38    | 86.12   | x               | 
+| Grid Search Most Confidence | 83.60    | 86.30   | 5 : 5 : 4       | 
+| Weighted Most Confidence    | 83.05    | 86.04   | 0.99 : 1 : 1.05 |
+| Ensemble Stacking           | 82.81    | 85.83   | x               | 
+
 
 ### Ensemble
 
